@@ -21,7 +21,7 @@ class ClockBot(Bot):
 
     def times(self, d: date) -> dict[SessionKind, object]:
         close = cal.session_close(d)
-        shift = close - cal.at(d, "16:00")  # negative on half days
+        shift = cal.close_shift(d)  # negative on half days
         return {
             SessionKind.OPEN: cal.session_open(d),
             SessionKind.ENTRY_CUTOFF: min(cal.at(d, self.cfg.entry_cutoff) + shift, close - timedelta(minutes=30)),
@@ -35,6 +35,12 @@ class ClockBot(Bot):
         if not cal.is_trading_day(d):
             return
         if d != self.day:
+            if self.day is not None:
+                # a session that ends at midnight (crypto) closes on the next date's first heartbeat
+                for kind, when in self.times(self.day).items():
+                    if kind not in self.done and hb.ts >= when:
+                        self.done.add(kind)
+                        self.emit(SessionEvent(hb.ts, kind, self.day))
             self.day, self.done = d, set()
             self.emit(SessionEvent(hb.ts, SessionKind.NEW_DAY, d))
         for kind, when in self.times(d).items():

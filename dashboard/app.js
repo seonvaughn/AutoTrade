@@ -5,6 +5,8 @@ const COLORS = { CALL: 0x26ffa0, PUT: 0xff2d6f, cyan: 0x3ee8ff, gold: 0xffd84a, 
 const $ = (id) => document.getElementById(id);
 const money = (x) => `${x >= 0 ? "+" : "-"}$${Math.abs(x).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 const cls = (x) => (x >= 0 ? "pos" : "neg");
+const px = (x) => (x == null ? "—" : x >= 1000 ? x.toLocaleString(undefined, { maximumFractionDigits: 0 }) : x >= 1 ? x.toFixed(2) : x.toFixed(4));
+const qty = (q) => (q >= 1 ? `${+q.toFixed(4)}` : `${+q.toFixed(6)}`);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 const store = { state: null, thoughts: {}, candles: {}, ticker: [], alerts: [], selected: null };
@@ -85,8 +87,10 @@ const vault = new THREE.Group();
 {
   const base = new THREE.Mesh(new THREE.CylinderGeometry(4.2, 4.6, 1, 40), new THREE.MeshStandardMaterial({ color: 0x1a1250, emissive: 0x231a80, emissiveIntensity: 0.6 }));
   base.position.y = 0.5;
+  base.userData.vault = true;
   const dome = new THREE.Mesh(new THREE.SphereGeometry(3.4, 40, 20, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffe6c4, emissiveIntensity: 0.9 }));
   dome.position.y = 3.2;
+  dome.userData.vault = true;
   const drum = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 3.4, 2.2, 40, 1, true), new THREE.MeshStandardMaterial({ color: 0xc8735a, emissive: 0x7a2c1a, emissiveIntensity: 0.6 }));
   drum.position.y = 2.1;
   vault.add(base, drum, dome);
@@ -95,6 +99,7 @@ const vault = new THREE.Group();
 }
 
 const towers = new Map(); // worker name -> {group, beam, halo, top, mats, label}
+let ringR = 13;            // radius of the tower ring (grows with the number of towers)
 const labelsEl = $("labels");
 const vaultLabel = document.createElement("div");
 vaultLabel.className = "label vault";
@@ -106,8 +111,9 @@ function buildTowers(workers) {
   for (const t of towers.values()) { scene.remove(t.group); t.label.remove(); }
   towers.clear();
   workers.forEach((w, i) => {
+    ringR = Math.max(13, (workers.length * 7) / (2 * Math.PI));
     const a = (i / workers.length) * Math.PI * 2 - Math.PI / 2;
-    const r = 13;
+    const r = ringR;
     const g = new THREE.Group();
     g.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
     const tex = windowTexture(i + 3);
@@ -139,6 +145,7 @@ function buildTowers(workers) {
     const label = document.createElement("div");
     label.className = "label";
     label.addEventListener("click", () => select(w.name));
+    label.addEventListener("dblclick", () => enterTower(w.name));
     label.style.pointerEvents = "auto";
     label.style.cursor = "pointer";
     labelsEl.appendChild(label);
@@ -173,12 +180,39 @@ function floater(worker, text, good) {
 }
 
 const raycaster = new THREE.Raycaster();
-canvas.addEventListener("click", (ev) => {
+function pick(ev) {
   const v = new THREE.Vector2((ev.clientX / innerWidth) * 2 - 1, -(ev.clientY / innerHeight) * 2 + 1);
   raycaster.setFromCamera(v, camera);
-  const hit = raycaster.intersectObjects([...towers.values()].map((t) => t.group), true).find((h) => h.object.userData.worker);
-  if (hit) select(hit.object.userData.worker);
+  const targets = [...towers.values()].map((t) => t.group).concat([...crewBots.values()].map((b) => b.group), [vault]);
+  const hit = raycaster.intersectObjects(targets, true).find((h) => h.object.userData.worker || h.object.userData.bot || h.object.userData.vault);
+  return hit ? hit.object.userData : null;
+}
+canvas.addEventListener("click", (ev) => {
+  const hit = pick(ev);
+  if (!hit) { hideBotCard(); return; }
+  if (hit.worker) { hideBotCard(); select(hit.worker); }
+  else if (hit.bot) showBotCard(hit.bot, ev.clientX, ev.clientY);
+  else if (hit.vault) enterVault();
 });
+canvas.addEventListener("dblclick", (ev) => {
+  const hit = pick(ev);
+  if (hit && hit.worker) enterTower(hit.worker);
+});
+let hoverAt = 0;
+canvas.addEventListener("pointermove", (ev) => {
+  const now = performance.now();
+  if (now - hoverAt < 60 || ev.pointerType === "touch") return;
+  hoverAt = now;
+  const hit = pick(ev);
+  const tip = $("hovertip");
+  if (!hit) { tip.hidden = true; canvas.style.cursor = ""; return; }
+  canvas.style.cursor = "pointer";
+  tip.textContent = hit.worker ? `${hit.worker} · click to select, double-click to enter`
+    : hit.bot ? `${hit.bot} · click for details` : "The Vault · click to enter";
+  tip.style.left = `${ev.clientX}px`; tip.style.top = `${ev.clientY}px`;
+  tip.hidden = false;
+});
+canvas.addEventListener("pointerleave", () => ($("hovertip").hidden = true));
 
 function resize() {
   renderer.setSize(innerWidth, innerHeight, false);
@@ -199,7 +233,9 @@ function project(vec, el) {
 
 function animate(now) {
   requestAnimationFrame(animate);
+  stepFlight(now);
   controls.update();
+  animateCrew(now);
   for (const t of towers.values()) {
     const active = t.status === "in_trade";
     const show = active || t.charge >= 5;
@@ -288,7 +324,7 @@ const TRIGGER = { vwap_cross: "VWAP cross", ema50_cross: "EMA50 cross", orb: "15
 function renderRight(s) {
   const w = s.workers.find((x) => x.name === store.selected) || s.workers[0];
   if (!w) return;
-  $("tower-name").textContent = `${w.name} · ${w.symbol}${w.dte ? ` · ${w.dte}DTE` : " · 0DTE"}`;
+  $("tower-name").textContent = `${w.name} · ${w.symbol}${s.market === "crypto" ? "" : w.dte ? ` · ${w.dte}DTE` : " · 0DTE"}`;
   const st = $("tower-status");
   st.textContent = w.status === "clocked_out" ? `clocked out (${w.clock_reason})` : w.status.replace("_", " ");
   st.className = `pill ${w.status}`;
@@ -301,22 +337,21 @@ function renderRight(s) {
   }).join("");
   const total = workerTotal(w);
   const pos = w.position;
-  const posHtml = pos ? `<div class="${cls(pos.pnl)}">IN A TRADE · ${pos.right === "CALL" ? "▲" : "▼"} ${pos.qty}× ${pos.strike} ${pos.right} @ ${pos.entry.toFixed(2)} → ${pos.mark.toFixed(2)} (${money(pos.pnl)})</div>` : "";
+  const posHtml = pos ? `<div class="${cls(pos.pnl)}">IN A TRADE · ${pos.right === "CALL" ? "▲" : "▼"} ${qty(pos.qty)}× ${esc(pos.label)} @ ${px(pos.entry)} → ${px(pos.mark)} (${money(pos.pnl)})</div>` : "";
   const wr = w.trades ? Math.round((100 * w.wins) / w.trades) : 0;
   $("earned").innerHTML = `<div class="big ${cls(total)}">${money(total)}</div>
     <div class="dim">${w.trades} trades · ${w.wins} wins · ${wr}% win rate · goal ${money(w.goal)} / stop ${money(-w.max_loss)}</div>${posHtml}
-    <table>${w.last_trades.map((t) => `<tr><td>${t.t} ${t.side === "CALL" ? "▲" : "▼"} ${t.qty} ${esc(t.sym)} · ${esc(t.reason.replace("_", " "))}</td><td class="${cls(t.pnl)}">${money(t.pnl)}</td></tr>`).join("")}</table>`;
+    <table>${w.last_trades.slice(0, 8).map((t) => `<tr><td>${t.t} ${t.side === "CALL" ? "▲" : "▼"} ${qty(t.qty)} ${esc(t.sym)} · ${esc(t.reason.replace("_", " "))}</td><td class="${cls(t.pnl)}">${money(t.pnl)}</td></tr>`).join("")}</table>`;
   $("thoughts").innerHTML = (store.thoughts[w.name] || []).slice(0, 40).map((t) => `<li class="${t.tone}"><span class="t">${t.t.slice(0, 5)}</span><span>${esc(t.text)}</span></li>`).join("");
   $("chart-title").textContent = `${w.symbol} · 1-min${s.prices[w.symbol] ? ` · ${s.prices[w.symbol].toFixed(2)}` : ""}`;
   drawChart(w, s);
 }
 
-function drawChart(w, s) {
-  const cv = $("chart");
+function drawChart(w, s, cv = $("chart"), count = 90) {
   const g = cv.getContext("2d");
   const W = cv.width, H = cv.height;
   g.clearRect(0, 0, W, H);
-  const bars = (store.candles[w.symbol] || []).slice(-90);
+  const bars = (store.candles[w.symbol] || []).slice(-count);
   if (!bars.length) { g.fillStyle = "#9a93c9"; g.font = "13px sans-serif"; g.fillText("waiting for the first candle…", 16, 28); return; }
   const vals = bars.flatMap((b) => [b.h, b.l, b.vwap, b.ema50].filter((v) => v != null));
   if (s.prices[w.symbol] != null) vals.push(s.prices[w.symbol]);
@@ -327,7 +362,7 @@ function drawChart(w, s) {
   g.strokeStyle = "rgba(255,255,255,.06)";
   for (let i = 0; i < 4; i++) { const yy = 6 + i * (H - 20) / 3; g.beginPath(); g.moveTo(0, yy); g.lineTo(W - 46, yy); g.stroke(); }
   g.fillStyle = "#9a93c9"; g.font = "10px monospace";
-  for (const v of [hi - pad, lo + pad]) g.fillText(v.toFixed(2), W - 44, y(v) + 3);
+  for (const v of [hi - pad, lo + pad]) g.fillText(px(v), W - 44, y(v) + 3);
   bars.forEach((b, i) => {
     const x = i * step + step / 2;
     const up = b.c >= b.o;
@@ -342,8 +377,8 @@ function drawChart(w, s) {
     bars.forEach((b, i) => { if (b[k] == null) return; const x = i * step + step / 2; started ? g.lineTo(x, y(b[k])) : g.moveTo(x, y(b[k])); started = true; });
     g.stroke(); g.lineWidth = 1;
   }
-  const px = s.prices[w.symbol];
-  if (px) { g.setLineDash([4, 4]); g.strokeStyle = "rgba(62,232,255,.7)"; g.beginPath(); g.moveTo(0, y(px)); g.lineTo(W - 46, y(px)); g.stroke(); g.setLineDash([]); }
+  const last = s.prices[w.symbol];
+  if (last) { g.setLineDash([4, 4]); g.strokeStyle = "rgba(62,232,255,.7)"; g.beginPath(); g.moveTo(0, y(last)); g.lineTo(W - 46, y(last)); g.stroke(); g.setLineDash([]); }
 }
 
 function renderBottom(s) {
@@ -373,6 +408,8 @@ function renderPanels() {
     t.label.innerHTML = `<div class="n">${w.name === store.selected ? "★ " : ""}${esc(w.name)}</div><div class="dim">${st}</div><div class="${cls(total)}">earned ${money(total)}</div>`;
   }
   renderTop(s); renderLeft(s); renderRight(s); renderBottom(s);
+  updateCrew(s.crew || []);
+  if (!$("inside").hidden) renderInside();
 }
 
 function showSummary(m) {
@@ -441,3 +478,317 @@ function connect() {
   ws.onclose = () => { $("offline").hidden = false; setTimeout(connect, 1500); };
 }
 connect();
+
+// ============================================================ the crew: one little robot per bot
+const CREW_GROUPS = [
+  { cat: "Data", color: COLORS.cyan, bots: ["price_feed", "candles", "options_chain", "clock"] },
+  { cat: "Indicators & signals", color: COLORS.gold, bots: ["atr", "vwap", "ema50", "opening_range", "sig_vwap_cross", "sig_ema50_cross", "sig_orb"] },
+  { cat: "Decisions", color: COLORS.violet, bots: ["signal_filter", "contract_selector", "position_sizer", "risk_manager"] },
+  { cat: "Execution", color: COLORS.CALL, bots: ["execution", "exit_manager", "reconciliation"] },
+  { cat: "Records & ops", color: 0xff7ac8, bots: ["ledger", "daily_goal", "journal", "analyst", "health", "alerts", "dashboard", "orchestrator"] },
+];
+const crewInfo = new Map(); // name -> {cat, color}
+for (const g of CREW_GROUPS) for (const b of g.bots) crewInfo.set(b, { cat: g.cat, color: g.color });
+const crewBots = new Map(); // name -> {group, eye, head, handled, activeUntil, phase}
+const crewData = new Map(); // name -> latest crew row from the server
+
+function buildCrew(names) {
+  if (names.join("|") === [...crewBots.keys()].join("|")) return;
+  for (const b of crewBots.values()) scene.remove(b.group);
+  crewBots.clear();
+  const r = ringR + 8;
+  names.forEach((name, i) => {
+    const info = crewInfo.get(name) || { cat: "Crew", color: 0xffffff };
+    const a = (i / names.length) * Math.PI * 2 + Math.PI / names.length;
+    const g = new THREE.Group();
+    g.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
+    g.rotation.y = -a - Math.PI / 2; // face the center
+    const shell = new THREE.MeshStandardMaterial({ color: 0x1a1450, emissive: info.color, emissiveIntensity: 0.25, metalness: 0.3, roughness: 0.5 });
+    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.45, 0.7, 4, 12), shell);
+    body.position.y = 0.95;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.38, 16, 12), shell);
+    head.position.y = 1.85;
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.11, 10, 8), new THREE.MeshBasicMaterial({ color: info.color }));
+    eye.position.set(0, 1.88, 0.33);
+    const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.4), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+    antenna.position.y = 2.35;
+    const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.75, 0.12, 24), new THREE.MeshBasicMaterial({ color: info.color, transparent: true, opacity: 0.35 }));
+    pad.position.y = 0.06;
+    for (const m of [body, head, eye, antenna, pad]) m.userData.bot = name;
+    g.add(pad, body, head, eye, antenna);
+    scene.add(g);
+    crewBots.set(name, { group: g, eye, head, shell, body, handled: null, activeUntil: 0, phase: i * 0.7 });
+  });
+}
+
+function updateCrew(rows) {
+  if (!rows.length) return;
+  buildCrew(rows.map((r) => r.name));
+  const now = performance.now();
+  for (const row of rows) {
+    crewData.set(row.name, row);
+    const b = crewBots.get(row.name);
+    if (!b) continue;
+    if (b.handled !== null && row.handled > b.handled) b.activeUntil = now + 900;
+    b.handled = row.handled;
+  }
+  const card = $("botcard");
+  if (!card.hidden && card.dataset.bot) fillBotCard(card.dataset.bot);
+}
+
+function animateCrew(now) {
+  for (const b of crewBots.values()) {
+    const busy = now < b.activeUntil;
+    const lift = busy ? 0.25 + 0.15 * Math.sin(now / 90 + b.phase) : 0.05 * Math.sin(now / 900 + b.phase);
+    b.body.position.y = 0.95 + lift;
+    b.head.position.y = 1.85 + lift;
+    b.eye.position.y = 1.88 + lift;
+    b.head.rotation.y = busy ? Math.sin(now / 160 + b.phase) * 0.6 : Math.sin(now / 2400 + b.phase) * 0.3;
+    b.shell.emissiveIntensity = busy ? 0.9 : 0.25;
+    b.eye.scale.setScalar(busy ? 1.5 : 1);
+  }
+}
+
+function fillBotCard(name) {
+  const card = $("botcard");
+  const row = crewData.get(name) || { name, skill: "", handled: 0, last: "", ts: null };
+  const info = crewInfo.get(name) || { cat: "Crew" };
+  const busy = (crewBots.get(name)?.activeUntil || 0) > performance.now();
+  const s = store.state;
+  const towersFor = s ? s.workers.filter((w) => (w.crew || []).includes(name)).map((w) => w.name) : [];
+  card.innerHTML = `<button class="x" type="button" aria-label="Close">×</button>
+    <div class="cat">${esc(info.cat)}</div>
+    <h3><span class="dot ${busy ? "busy" : ""}"></span>${esc(name)}</h3>
+    <p>${esc(row.skill)}</p>
+    <dl>
+      <dt>events handled</dt><dd>${(row.handled || 0).toLocaleString()}</dd>
+      <dt>last job</dt><dd>${esc(row.last || "—")}${row.ts ? ` @ ${row.ts}` : ""}</dd>
+      <dt>works for</dt><dd>${towersFor.length ? esc(towersFor.join(", ")) : "the whole city"}</dd>
+    </dl>`;
+  card.querySelector(".x").onclick = hideBotCard;
+}
+
+function showBotCard(name, x, y) {
+  const card = $("botcard");
+  card.dataset.bot = name;
+  fillBotCard(name);
+  card.hidden = false;
+  card.style.left = `${Math.min(x + 14, innerWidth - 300)}px`;
+  card.style.top = `${Math.min(y + 14, innerHeight - 220)}px`;
+}
+function hideBotCard() { $("botcard").hidden = true; delete $("botcard").dataset.bot; }
+
+// ============================================================ camera flights
+let flight = null;
+let home = null; // where the camera was before entering a building
+function flyTo(pos, target, ms, then) {
+  flight = { p0: camera.position.clone(), t0: controls.target.clone(), p1: pos, t1: target, start: performance.now(), ms, then };
+  controls.autoRotate = false;
+  controls.enabled = false;
+}
+function stepFlight(now) {
+  if (!flight) return;
+  const k = Math.min(1, (now - flight.start) / flight.ms);
+  const e = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2; // ease in-out
+  camera.position.lerpVectors(flight.p0, flight.p1, e);
+  controls.target.lerpVectors(flight.t0, flight.t1, e);
+  if (k >= 1) {
+    const done = flight.then;
+    flight = null;
+    controls.enabled = true;
+    if (done) done();
+  }
+}
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// ============================================================ inside a building
+const inside = { kind: null, name: null, floor: null, html: "" };
+
+function enterTower(name) {
+  const t = towers.get(name);
+  if (!t) return;
+  select(name);
+  hideBotCard();
+  const p = t.group.position;
+  const out = p.clone().setY(0).normalize();
+  home = home || { pos: camera.position.clone(), target: controls.target.clone() };
+  openInside("tower", name, "trading", p.clone().add(out.multiplyScalar(6)).setY(2.2), p.clone().setY(2.2));
+}
+
+function enterVault() {
+  hideBotCard();
+  home = home || { pos: camera.position.clone(), target: controls.target.clone() };
+  openInside("vault", "The Vault", "vault", new THREE.Vector3(0, 2.4, 8), new THREE.Vector3(0, 2, 0));
+}
+
+function openInside(kind, name, floor, camPos, camTarget) {
+  Object.assign(inside, { kind, name, floor, html: "" });
+  const show = () => { $("inside").hidden = false; renderInside(); $("inside-exit").focus(); };
+  if (reducedMotion) show(); else flyTo(camPos, camTarget, 900, show);
+}
+
+function exitInside() {
+  $("inside").hidden = true;
+  inside.kind = null;
+  if (home) {
+    const back = home;
+    home = null;
+    const restore = () => { controls.autoRotate = true; };
+    if (reducedMotion) { camera.position.copy(back.pos); controls.target.copy(back.target); restore(); }
+    else flyTo(back.pos, back.target, 900, restore);
+  }
+}
+
+$("enter-btn").onclick = () => store.selected && enterTower(store.selected);
+$("inside-exit").onclick = exitInside;
+addEventListener("keydown", (ev) => {
+  if (ev.key !== "Escape") return;
+  if (!$("inside").hidden) exitInside();
+  else hideBotCard();
+});
+
+const TOWER_FLOORS = [
+  ["trading", "5", "Trading floor"], ["charts", "4", "Chart room"], ["thoughts", "3", "Thoughts"],
+  ["trades", "2", "Trade log"], ["rules", "1", "Lobby · rules"], ["crew", "B", "Crew room"],
+];
+const VAULT_FLOORS = [["vault", "1", "Vault floor"], ["days", "2", "Day by day"], ["crew", "B", "The whole crew"]];
+
+function renderInside() {
+  const s = store.state;
+  if (!s || !inside.kind) return;
+  const floors = inside.kind === "vault" ? VAULT_FLOORS : TOWER_FLOORS;
+  const w = inside.kind === "tower" ? s.workers.find((x) => x.name === inside.name) : null;
+  if (inside.kind === "tower" && !w) { exitInside(); return; }
+  $("inside-kicker").textContent = inside.kind === "vault" ? "Central bank of Scalp City" : `Tower · ${w.symbol}`;
+  $("inside-title").textContent = inside.name;
+  const st = $("inside-status");
+  if (w) {
+    st.hidden = false;
+    st.textContent = w.status === "clocked_out" ? `clocked out (${w.clock_reason})` : w.status.replace("_", " ");
+    st.className = `pill ${w.status}`;
+  } else st.hidden = true;
+  const nav = floors.map(([id, lvl, label]) =>
+    `<button type="button" data-floor="${id}" aria-current="${id === inside.floor}"><span class="lvl">${lvl}</span>${label}</button>`).join("");
+  if ($("elevator").dataset.nav !== nav) {
+    $("elevator").innerHTML = nav;
+    $("elevator").dataset.nav = nav;
+    for (const b of $("elevator").querySelectorAll("button")) b.onclick = () => { inside.floor = b.dataset.floor; inside.html = ""; renderInside(); };
+  }
+  const html = w ? towerFloor(w, s) : vaultFloor(s);
+  if (html !== inside.html) { $("floor").innerHTML = html; inside.html = html; wireFloor(); }
+  const cv = $("floor-chart");
+  if (cv && w) drawChart(w, s, cv, 240);
+}
+
+function wireFloor() {
+  for (const el of $("floor").querySelectorAll("[data-bot]")) {
+    el.onclick = (ev) => showBotCard(el.dataset.bot, ev.clientX, ev.clientY);
+  }
+  for (const el of $("floor").querySelectorAll("[data-enter]")) {
+    el.onclick = () => { $("inside").hidden = true; inside.kind = null; enterTower(el.dataset.enter); };
+  }
+}
+
+const card = (k, v, c = "") => `<div class="card"><div class="k">${k}</div><div class="v ${c}">${v}</div></div>`;
+const REASON = { profit_lock: "🔒 profit lock", target: "🎯 target", stop: "🛑 stop", time: "⏱ time", reversal: "↩ reversal", end_of_day: "🔔 end of day", kill: "⛔ kill switch" };
+
+function goalBar(w) {
+  const total = workerTotal(w);
+  const span = Math.max(w.goal, w.max_loss);
+  const pct = Math.min(50, (Math.abs(total) / span) * 50);
+  const style = total >= 0 ? `left:50%;width:${pct}%;background:var(--call)` : `right:50%;width:${pct}%;background:var(--put)`;
+  return `<div class="progress" role="img" aria-label="day P&L ${money(total)} between loss limit ${money(-w.max_loss)} and goal ${money(w.goal)}"><i style="${style}"></i><span class="zero"></span></div>
+    <div class="dim" style="display:flex;justify-content:space-between;font-size:11px;margin-top:3px"><span>loss limit ${money(-w.max_loss)}</span><span>goal ${money(w.goal)}</span></div>`;
+}
+
+function crewCards(names) {
+  const now = performance.now();
+  return `<div class="crew">${names.map((n) => {
+    const row = crewData.get(n) || { skill: "", handled: 0 };
+    const busy = (crewBots.get(n)?.activeUntil || 0) > now;
+    return `<div class="card" data-bot="${esc(n)}"><span class="dot ${busy ? "busy" : ""}" style="margin-top:5px"></span>
+      <div><b>${esc(n)}</b><small>${esc(row.skill)}</small><small class="mono">${(row.handled || 0).toLocaleString()} events · ${esc(row.last || "idle")}</small></div></div>`;
+  }).join("")}</div>`;
+}
+
+function towerFloor(w, s) {
+  const total = workerTotal(w);
+  const pos = w.position;
+  switch (inside.floor) {
+    case "trading": {
+      const wr = w.trades ? Math.round((100 * w.wins) / w.trades) : 0;
+      const posCard = pos
+        ? `<div class="card"><div class="k">Open position</div>
+            <div class="v ${cls(pos.pnl)}">${money(pos.pnl)}</div>
+            <div>${pos.right === "CALL" ? "▲" : "▼"} ${qty(pos.qty)} × ${esc(pos.label)}${pos.expiry ? ` · exp ${pos.expiry}` : ""}</div>
+            <div class="dim mono">${px(pos.entry)} → ${px(pos.mark)} · since ${pos.opened.slice(11, 16)}</div></div>`
+        : `<div class="card"><div class="k">Open position</div><div class="v dim">none</div><div class="dim">waiting for a trigger</div></div>`;
+      const scans = w.triggers.map((t) => {
+        const x = w.setups[t];
+        if (!x) return `<div class="scan"><div class="row"><span>${TRIGGER[t]}</span><span class="dim">warming up / market closed</span></div><div class="bar"><i style="width:0"></i></div></div>`;
+        return `<div class="scan"><div class="row"><span>${TRIGGER[t]} ${x.side === "CALL" ? "▲" : "▼"} ${x.side} · level ${px(x.level)} · ${x.distance.toFixed(2)} ATR away</span><b>${x.charge}%</b></div>
+          <div class="bar ${x.side}"><i style="width:${x.charge}%"></i></div></div>`;
+      }).join("");
+      return `<h2>Trading floor</h2>
+        <div class="grid">${card("Earned today", money(total), cls(total))}${card("Trades · wins", `${w.trades} · ${w.wins} <small class="dim">(${wr}%)</small>`)}${card(`${esc(w.symbol)} now`, px(s.prices[w.symbol]))}</div>
+        <div class="grid">${posCard}<div class="card"><div class="k">Today vs. goal</div>${goalBar(w)}</div></div>
+        <h2>Signal scanner</h2>${scans}`;
+    }
+    case "charts":
+      return `<h2>Chart room · ${esc(w.symbol)} 1-minute</h2><canvas id="floor-chart" width="1100" height="440" aria-label="${esc(w.symbol)} one-minute chart with VWAP and EMA50"></canvas>
+        <div class="legend"><span class="lg vwap">VWAP</span><span class="lg ema">EMA50</span><span class="lg entry">last price</span></div>`;
+    case "thoughts": {
+      const list = store.thoughts[w.name] || [];
+      return `<h2>Thoughts · what ${esc(w.name)} saw and did</h2>${list.length
+        ? `<ul class="thoughts">${list.map((t) => `<li class="${t.tone}"><span class="t">${t.t}</span><span>${esc(t.text)}</span></li>`).join("")}</ul>`
+        : `<div class="empty">Nothing yet today. Thoughts appear as setups form and trades fire.</div>`}`;
+    }
+    case "trades":
+      return `<h2>Trade log · today</h2>${w.last_trades.length ? `<table><thead><tr><th>in</th><th>out</th><th>what</th><th class="r">qty</th><th class="r">entry</th><th class="r">exit</th><th>why out</th><th class="r">P&L</th></tr></thead><tbody>
+        ${w.last_trades.map((t) => `<tr><td>${t.t}</td><td>${t.out || ""}</td><td>${t.side === "CALL" ? "▲" : "▼"} ${esc(t.label || t.sym)}</td><td class="r">${qty(t.qty)}</td>
+          <td class="r">${px(t.entry)}</td><td class="r">${px(t.exit)}</td><td>${REASON[t.reason] || esc(t.reason)}</td><td class="r ${cls(t.pnl)}">${money(t.pnl)}</td></tr>`).join("")}
+        </tbody></table>` : `<div class="empty">No closed trades today.</div>`}`;
+    case "rules": {
+      const c = w.settings || {};
+      const z = c.sizing || {}, x = c.exits || {};
+      const size = z.mode === "fixed" ? `${z.contracts} fixed` : z.mode === "budget" ? `$${z.budget} budget, max ${z.max_contracts}` : `$${z.risk} risk to stop, max ${z.max_contracts}`;
+      return `<h2>Lobby · how ${esc(w.name)} trades</h2><dl class="rules">
+        <dt>symbol</dt><dd>${esc(w.symbol)}</dd>
+        <dt>triggers</dt><dd>${w.triggers.map((t) => TRIGGER[t]).join(", ")}</dd>
+        ${s.market === "crypto" ? "<dt>direction</dt><dd>long only (buys the coin; sell signals only close)</dd>" : `<dt>contract</dt><dd>${esc(c.strike)} strike · nearest listed expiry ≥ ${c.dte}DTE</dd>`}
+        <dt>trading window</dt><dd>${esc(c.window)} ET · max ${c.max_trades} trades · ${c.cooldown} min cooldown</dd>
+        <dt>trend filter</dt><dd>${c.trend_filter ? "on (only trade with EMA50 and VWAP)" : "off"}</dd>
+        <dt>size</dt><dd>${esc(size)}</dd>
+        <dt>take profit</dt><dd>+${x.take_profit_pct}%</dd>
+        <dt>stop loss</dt><dd>−${x.stop_loss_pct}%</dd>
+        <dt>profit lock</dt><dd>after +${x.trail_activate_pct}%, keep ${Math.round((x.trail_lock_ratio || 0) * 100)}% of the best gain</dd>
+        <dt>time stop</dt><dd>${x.max_hold_minutes} min · reversal exit ${x.exit_on_reversal ? "on" : "off"}</dd>
+        <dt>daily goal / limit</dt><dd>${money(w.goal)} / ${money(-w.max_loss)} then clock out</dd></dl>`;
+    }
+    case "crew":
+      return `<h2>Crew room · the bots working for ${esc(w.name)}</h2>${crewCards(w.crew || [])}`;
+  }
+  return "";
+}
+
+function vaultFloor(s) {
+  switch (inside.floor) {
+    case "vault": {
+      const ranked = [...s.workers].sort((a, b) => workerTotal(b) - workerTotal(a));
+      const open = s.workers.filter((w) => w.position).length;
+      return `<h2>Vault floor · ${esc(s.day || "")}</h2>
+        <div class="grid">${card("Vault today", money(s.vault), cls(s.vault))}${card("Open positions", open)}${card("Kill switch", s.kill.engaged ? "ON" : "off", s.kill.engaged ? "neg" : "")}</div>
+        <table><thead><tr><th>tower</th><th class="r">trades</th><th class="r">realized</th><th class="r">open</th><th class="r">total</th><th></th></tr></thead><tbody>
+        ${ranked.map((w) => `<tr><td>${esc(w.name)}</td><td class="r">${w.trades}</td><td class="r ${cls(w.realized)}">${money(w.realized)}</td><td class="r ${cls(w.unrealized)}">${money(w.unrealized)}</td>
+          <td class="r ${cls(workerTotal(w))}"><b>${money(workerTotal(w))}</b></td><td class="r"><button class="enter" type="button" data-enter="${esc(w.name)}">Enter ▸</button></td></tr>`).join("")}
+        </tbody></table>`;
+    }
+    case "days":
+      return `<h2>Day by day · finished sessions</h2>${s.calendar.length ? `<table><thead><tr><th>day</th><th class="r">P&L</th></tr></thead><tbody>
+        ${[...s.calendar].reverse().map((d) => `<tr><td>${d.day}</td><td class="r ${cls(d.pnl)}">${money(d.pnl)}</td></tr>`).join("")}</tbody></table>`
+        : `<div class="empty">No finished days yet.</div>`}`;
+    case "crew":
+      return `<h2>The whole crew · one skill per bot</h2>${crewCards((s.crew || []).map((c) => c.name))}`;
+  }
+  return "";
+}

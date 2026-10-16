@@ -5,7 +5,9 @@ value for a candle, the ATR for that same candle is already known.
 """
 from __future__ import annotations
 
-from datetime import date, time
+from datetime import date, timedelta
+
+from ..core import calendar as cal
 
 from ..core.events import CandleClosed, IndicatorValue
 from .base import Bot
@@ -83,8 +85,8 @@ class EMABot(Bot):
 
 class OpeningRangeBot(Bot):
     name = "opening_range"
-    skill = "High/low of the first 15 minutes (9:30-9:45); locks at 9:45"
-    end = time(9, 45)
+    skill = "High/low of the first 15 minutes of the session (9:30-9:45; crypto 00:00-00:15 ET); locks after"
+    minutes = 15
 
     def setup(self) -> None:
         self.state: dict[str, dict] = {}
@@ -96,12 +98,12 @@ class OpeningRangeBot(Bot):
         s = self.state.get(c.symbol)
         if s is None or s["day"] != day:
             s = self.state[c.symbol] = {"day": day, "hi": None, "lo": None, "locked": False}
-        t = c.start.timetz().replace(tzinfo=None)
+        end = cal.session_open(day) + timedelta(minutes=self.minutes)
         if not s["locked"]:
-            if t < self.end:
+            if c.start < end:
                 s["hi"] = c.high if s["hi"] is None else max(s["hi"], c.high)
                 s["lo"] = c.low if s["lo"] is None else min(s["lo"], c.low)
-            if t >= time(9, 44) and s["hi"] is not None:
+            if c.start >= end - timedelta(minutes=1) and s["hi"] is not None:
                 s["locked"] = True
         hi = s["hi"] if s["hi"] is not None else c.high
         lo = s["lo"] if s["lo"] is not None else c.low

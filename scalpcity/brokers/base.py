@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional
 
-from ..core.events import OptionContract, OrderSide
+from ..core.events import Instrument, OrderSide
 
 
 @dataclass
@@ -15,12 +15,17 @@ class Account:
     daytrade_count: int = 0
     pattern_day_trader: bool = False
     cash_account: bool = False
+    non_marginable_buying_power: Optional[float] = None  # what crypto can use (no margin); None = cash
+
+    @property
+    def crypto_buying_power(self) -> float:
+        return self.cash if self.non_marginable_buying_power is None else self.non_marginable_buying_power
 
 
 @dataclass
 class OrderStatus:
     status: str          # open | partially_filled | filled | canceled | rejected | expired
-    filled_qty: int
+    filled_qty: float
     avg_price: float
 
     @property
@@ -35,7 +40,7 @@ class Broker(ABC):
     async def account(self) -> Account: ...
 
     @abstractmethod
-    async def submit(self, contract: OptionContract, side: OrderSide, qty: int, limit: Optional[float]) -> str: ...
+    async def submit(self, contract: Instrument, side: OrderSide, qty: float, limit: Optional[float]) -> str: ...
 
     @abstractmethod
     async def status(self, order_id: str) -> OrderStatus: ...
@@ -44,8 +49,8 @@ class Broker(ABC):
     async def cancel(self, order_id: str) -> None: ...
 
     @abstractmethod
-    async def positions(self) -> dict[str, int]:
-        """OCC symbol -> contracts held."""
+    async def positions(self) -> dict[str, float]:
+        """Position key (OCC symbol, or coin pair without the slash) -> quantity held."""
 
     async def close(self) -> None:
         pass

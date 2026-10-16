@@ -5,6 +5,7 @@ import asyncio
 from datetime import datetime, timedelta
 
 from ..core import calendar as cal
+from ..core.costs import QTY_EPS, fees
 from ..core.events import (Alert, Fill, Heartbeat, HealthStatus, KillSwitch, OptionQuote, OrderApproved, OrderFailed,
                            OrderIntent, OrderRejected, OrderSide, PositionOpened, Purpose, SessionEvent, SessionKind,
                            Signal, TradeClosed)
@@ -55,21 +56,23 @@ class ExecutionBot(Bot):
                 filled += st.filled_qty
                 notional += st.filled_qty * st.avg_price
                 remaining -= st.filled_qty
-            if remaining <= 0 or not exit_:
+            if remaining <= QTY_EPS or not exit_:
                 last_err = f"order {st.status}"
                 break
             last_err = f"order {st.status}"
-        if filled:
-            fee = self.cfg.sim.fee_per_contract * filled
+        if filled > QTY_EPS:
+            fee = fees(intent.contract, filled, notional / filled, self.cfg.sim)
             await self._out(Fill(self._now(intent, inline), intent, filled, round(notional / filled, 4), fee,
                                  last_oid), inline)
-        if remaining > 0:
+        if remaining > QTY_EPS:
             await self._out(OrderFailed(self._now(intent, inline), intent, last_err, filled), inline)
 
     async def _exit_limit(self, intent: OrderIntent, attempt: int):
         q = await self.bot("options_chain").quote(intent.contract)
         if q is None or q.bid <= 0:
             return None
+        if intent.contract.kind == "crypto":  # walk down 0.05% of price per attempt
+            return q.bid * (1 - 0.0005 * attempt)
         return max(0.01, round(q.bid - 0.01 * attempt, 2))
 
     async def _wait(self, oid: str):
@@ -136,7 +139,7 @@ class ExitManagerBot(Bot):
                 self.evaluate(worker, p, hb.ts)
 
     def evaluate(self, worker: str, p: dict, ts: datetime) -> None:
-        if p["exiting"] or p["quote"] is None or p["qty"] <= 0:
+        if p["exiting"] or p["quote"] is None or p["qty"] <= QTY_EPS:
             return
         x = self.cfg.worker(worker).exits
         gain = (p["quote"].bid - p["entry"]) / p["entry"] * 100
@@ -170,7 +173,7 @@ class ExitManagerBot(Bot):
 
     def exit(self, worker: str, reason: str, ts) -> None:
         p = self.pos[worker]
-        if p["exiting"] or p["qty"] <= 0:
+        if p["exiting"] or p["qty"] <= QTY_EPS:
             return
         p["exiting"] = True
         bid = p["quote"].bid if p["quote"] else 0.01
@@ -181,6 +184,20 @@ class ExitManagerBot(Bot):
 class ReconciliationBot(Bot):
     name = "reconciliation"
     skill = "Check the broker's real positions match what the bots think they hold"
+    CRYPTO_TOLERANCE = 0.02  # Alpaca takes crypto fees out of the coin received, so holdings run slightly short
+
+    @classmethod
+    def matches(cls, expected: dict, actual: dict) -> bool:
+        if expected.keys() != actual.keys():
+            return False
+        for k, want in expected.items():
+            have = actual[k]
+            if float(want).is_integer() and float(have).is_integer():
+                if want != have:
+                    return False
+            elif abs(have - want) > cls.CRYPTO_TOLERANCE * max(abs(want), abs(have)):
+                return False
+        return True
 
     def setup(self) -> None:
         self.last = None
@@ -198,7 +215,7 @@ class ReconciliationBot(Bot):
         except Exception as exc:  # noqa: BLE001
             self.emit(Alert(hb.ts, "warning", f"reconciliation: could not read broker positions: {exc}"))
             return
-        if expected == actual:
+        if self.matches(expected, actual):
             self.mismatches = 0
             if self.flagged:
                 self.flagged = False

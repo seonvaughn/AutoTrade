@@ -47,6 +47,7 @@ class Orchestrator:
     def __init__(self, cfg: Config, run_id: str | None = None, db_path: str | None = None,
                  dashboard: bool | None = None) -> None:
         self.cfg = cfg
+        cal.set_market(cfg.market)
         self.live = cfg.mode in {"paper", "live"}
         run_id = run_id or (cfg.mode if self.live else f"{cfg.mode}-{datetime.now():%Y%m%d-%H%M%S}")
         self.bus = EventBus()
@@ -71,7 +72,7 @@ class Orchestrator:
         from .brokers.sim import SimBroker
         chain = self.ctx.bots["options_chain"]
         clock = self.ctx.bots["clock"]
-        return SimBroker(self.cfg.sim.starting_cash, self.cfg.sim.fee_per_contract, chain.quote_now,
+        return SimBroker(self.cfg.sim.starting_cash, self.cfg.sim, chain.quote_now,
                          lambda: clock.day or date.today())
 
     def roster(self) -> list[tuple[str, str]]:

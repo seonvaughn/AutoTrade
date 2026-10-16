@@ -53,12 +53,12 @@ def main(argv: list[str] | None = None) -> int:
     b = sub.add_parser("backtest")
     b.add_argument("--start", required=True)
     b.add_argument("--end", required=True)
-    b.add_argument("--source", choices=["synthetic", "csv", "polygon"])
+    b.add_argument("--source", choices=["synthetic", "csv", "polygon", "alpaca"])
     b.add_argument("--out", default="reports")
     r = sub.add_parser("replay")
     r.add_argument("--day", required=True)
     r.add_argument("--pace", type=float, default=1.0, help="seconds per market minute")
-    r.add_argument("--source", choices=["synthetic", "csv", "polygon"])
+    r.add_argument("--source", choices=["synthetic", "csv", "polygon", "alpaca"])
     sub.add_parser("paper")
     sub.add_parser("live")
     d = sub.add_parser("download")
@@ -84,7 +84,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "download":
         cfg = load(args.config, "backtest")
         from .data.bars import download
-        paths = download(cfg.symbols, date.fromisoformat(args.start), date.fromisoformat(args.end), cfg.data.csv_dir)
+        paths = download(cfg.symbols, date.fromisoformat(args.start), date.fromisoformat(args.end), cfg.data.csv_dir,
+                         cfg.data.source if cfg.data.source in ("polygon", "alpaca") else "polygon")
         print(f"downloaded {len(paths)} files into {cfg.data.csv_dir}")
         return 0
 
@@ -93,9 +94,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.source:
             cfg.data.source = args.source
         days = _days(args)
-        if cfg.data.source == "polygon":
+        if cfg.data.source in ("polygon", "alpaca"):
             from .data.bars import download
-            download(cfg.symbols, cal.prev_trading_day(days[0]), days[-1], cfg.data.csv_dir)
+            download(cfg.symbols, cal.prev_trading_day(days[0]), days[-1], cfg.data.csv_dir, cfg.data.source)
         if cfg.data.source == "synthetic":
             logging.getLogger("scalpcity").warning("using SYNTHETIC prices — for testing the machinery only, "
                                                    "results say nothing about real profitability")

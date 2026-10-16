@@ -1,0 +1,94 @@
+# Scalp City, crypto edition: the same three triggers on 1-minute coin candles, 24/7.
+#   python -m scalpcity --config config.crypto.yaml paper      (Alpaca paper, any day, any hour)
+#   python -m scalpcity --config config.crypto.yaml backtest --start 2026-09-01 --end 2026-10-15
+# Run it alongside the options bots if you like: it has its own dashboard port and database.
+#
+# How crypto differs from the options bots:
+#   - Long only. A CALL signal buys the coin. Alpaca doesn't allow shorting crypto, so a PUT signal
+#     can only close a position (exit_on_reversal), never open one.
+#   - Days run midnight to midnight ET: VWAP resets at midnight, the opening range is 00:00-00:15 ET,
+#     and positions are closed by 23:55 so each day's P&L stands alone.
+#   - Exits are % of the coin price, so they are far tighter than option exits (coins move ~0.1-0.5%
+#     in 20 minutes; options move 10x that). Fees are ~0.25% per side, so a round trip costs ~0.5%:
+#     targets must clear that.
+#   - Prices are Alpaca quote midpoints. "VWAP" has no real volume behind it on Alpaca's thin crypto
+#     venue, so it behaves like an average price since midnight.
+#
+# BACKTEST RESULT (Alpaca crypto bars, 2026-10-01 to 10-15, these exact settings): 344 trades,
+# 2.3% win rate, -$2,765, 0 green days. A slower variant did no better (README, Known limits).
+# Fees (~0.5% round trip) eat these 1-minute triggers. Paper trade it to watch the machinery
+# work on weekends; don't expect profit from it as configured.
+
+mode: paper
+market: crypto
+live_trading_enabled: false
+
+entry_cutoff: "23:30"
+flatten_time: "23:55"
+db_path: data/scalpcity-crypto.db
+
+data:
+  source: alpaca            # backtest/replay bars (Alpaca crypto bars) | csv | synthetic
+  csv_dir: data/bars
+  quote_poll_seconds: 2
+
+broker:
+  name: alpaca
+  order_timeout_seconds: 8
+  exit_retries: 2
+
+risk:
+  max_daily_loss: 300
+  max_open_positions: 2
+  max_premium_exposure: 4000   # $ in coins at once
+  max_spread_pct: 0.5          # skip if the bid/ask spread is wider than 0.5% of price
+  pdt_guard: false
+
+sim:
+  starting_cash: 30000
+  crypto_half_spread_pct: 0.02
+  crypto_fee_pct: 0.25
+
+dashboard:
+  enabled: true
+  host: 127.0.0.1
+  port: 8766
+
+# sizing.max_contracts caps the coin quantity (e.g. at most 1 BTC per trade).
+workers:
+  - name: BTC
+    symbol: BTC/USD
+    triggers: [vwap_cross, ema50_cross, orb]
+    start_time: "00:20"
+    end_time: "23:30"
+    sizing: {mode: budget, budget: 2000, max_contracts: 1}
+    exits: {take_profit_pct: 1.2, stop_loss_pct: 0.6, trail_activate_pct: 0.7, trail_lock_ratio: 0.5, max_hold_minutes: 60}
+    daily_goal: 150
+    max_daily_loss: 100
+    max_trades_per_day: 8
+    cooldown_minutes: 10
+
+  - name: ETH
+    symbol: ETH/USD
+    triggers: [vwap_cross, ema50_cross, orb]
+    start_time: "00:20"
+    end_time: "23:30"
+    sizing: {mode: budget, budget: 1500, max_contracts: 5}
+    exits: {take_profit_pct: 1.5, stop_loss_pct: 0.75, trail_activate_pct: 0.8, trail_lock_ratio: 0.5, max_hold_minutes: 60}
+    daily_goal: 120
+    max_daily_loss: 80
+    max_trades_per_day: 8
+    cooldown_minutes: 10
+
+  - name: SOL
+    symbol: SOL/USD
+    triggers: [vwap_cross, ema50_cross, orb]
+    trend_filter: true
+    start_time: "00:20"
+    end_time: "23:30"
+    sizing: {mode: budget, budget: 1000, max_contracts: 50}
+    exits: {take_profit_pct: 2.0, stop_loss_pct: 1.0, trail_activate_pct: 1.0, trail_lock_ratio: 0.5, max_hold_minutes: 60}
+    daily_goal: 100
+    max_daily_loss: 60
+    max_trades_per_day: 8
+    cooldown_minutes: 10

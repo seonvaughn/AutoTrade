@@ -1,8 +1,10 @@
 # Scalp City: automated 0DTE options bots
 
 A rebuild of the "Scalp City" system from the @NICKAFISCHER video. Python bots day-trade options on
-QQQ, SPY and IWM using the three triggers he describes. A 3D city dashboard shows each bot as a
-tower.
+QQQ, SPY and IWM (plus NVDA, TSLA, AAPL, META, AMZN, AMD and MSFT) using the three triggers he
+describes. A separate crypto edition runs the same triggers on BTC, ETH and SOL around the clock. A 3D
+city dashboard shows each worker as a tower you can walk into, with the bots that run it standing
+around the city.
 
 > "It trades stock options off a one-minute chart and has three triggers: a candle closes across the
 > VWAP, a candle closes across the 50 EMA, or price breaks out of the first 15 minutes of range.
@@ -63,9 +65,11 @@ Only the price source and the broker plug-in change.
 | 25 | dashboard | The Scalp City 3D view (read-only, plus a kill switch button) |
 | 26 | price_feed | Brings prices in: replayed bars or the live Alpaca (or Polygon) stream |
 
-The five **workers** (towers) from the video are QQQ OG, QQQ TREND, QQQ, SPY and IWM. Each is just a
-block in `config.yaml`: ticker, triggers, sizing, exits and daily goal. Add or remove towers by editing
-that list.
+The five **workers** (towers) from the video are QQQ OG, QQQ TREND, QQQ, SPY and IWM; seven
+single-stock towers follow them. Each is just a block in `config.yaml`: ticker, triggers, sizing,
+exits and daily goal. Add or remove towers by editing that list. Any optionable US stock works: the
+contract selector takes the nearest listed expiry on or after `dte` (most single stocks only list
+some weekdays), so `dte: 0` means "the nearest expiry".
 
 ## 2. Accounts you need
 
@@ -102,19 +106,51 @@ set -a; source .env; set +a        # load keys into this terminal (Windows: set 
 
 ```bash
 python -m scalpcity bots                                   # list the crew
-python -m pytest                                           # 39 tests, all offline
+python -m pytest                                           # all tests run offline
 
-# Backtest on REAL data (downloads Polygon minute bars to data/bars/ first)
-python -m scalpcity backtest --start 2026-06-01 --end 2026-09-30 --source polygon
+# Backtest on REAL data. --source alpaca uses your Alpaca keys (fast); --source polygon is rate
+# limited to ~5 requests a minute on Polygon's free plan. Bars are cached in data/bars/, real option
+# prices (sim.use_historical_option_bars) in data/option_bars/, so later runs are much faster.
+python -m scalpcity backtest --start 2026-06-01 --end 2026-09-30 --source alpaca
 
 # Watch any past day play back in the 3D city (1 second per market minute)
-python -m scalpcity replay --day 2026-10-02 --source polygon --pace 1
+python -m scalpcity replay --day 2026-10-02 --source alpaca --pace 1
 #   then open http://127.0.0.1:8765
 
 # Paper trading (Alpaca paper broker + Alpaca live data), during market hours
 python -m scalpcity paper
 #   open http://127.0.0.1:8765. Ctrl-C closes open positions, then stops.
+
+# Crypto edition: any day, any hour (own dashboard on :8766 and own database)
+python -m scalpcity --config config.crypto.yaml paper
+python -m scalpcity --config config.crypto.yaml backtest --start 2026-09-01 --end 2026-10-15
 ```
+
+### The city
+
+- **Look around:** drag to orbit, scroll or pinch to zoom.
+- **Towers:** click one to see it in the side panel. Double-click it, or press **Enter ▸**, to go
+  inside. Each building has floors: the trading floor (open position, today vs. goal, signal
+  scanner), the chart room, the worker's thoughts, today's trade log, the lobby (its rules) and the
+  crew room (the bots working for it). **Esc** or **Exit building** takes you back out.
+- **The Vault** (the dome in the middle): click it to go in. It holds every tower's P&L, past days
+  and the whole crew.
+- **The crew:** the little robots around the city are the 26 bots, colored by job (cyan data, gold
+  signals, violet decisions, green execution, pink records). A robot bobs and lights up while it is
+  working. Click one for its skill, how many events it has handled and its last job.
+
+**Opening the city on your phone.** The dashboard only listens on this computer by default. To reach
+it from a phone on the same Wi-Fi, set a long random token and listen on the network:
+
+```bash
+export SCALPCITY_DASHBOARD_TOKEN=$(python -c "import secrets; print(secrets.token_urlsafe(24))")
+# in config.yaml: dashboard: host: 0.0.0.0
+python -m scalpcity paper
+# on the phone: http://<this computer's LAN IP>:8765/?token=<the token>
+```
+
+The token is required whenever the host isn't 127.0.0.1, because the dashboard has a kill switch.
+Don't expose the port to the internet.
 
 `--source synthetic` gives fake random prices with no account needed. It's good for checking that the
 machinery works, but **its P&L means nothing**.
@@ -169,3 +205,11 @@ Backtests write a JSON report to `reports/`. Every fill, trade and thought goes 
   (IWM is the likeliest) can go 30 s without a trade, which pauses new entries until one arrives.
   Raise `stale_data_seconds` if that happens often. `indicative` option quotes can be wider than the
   real market, so the spread filter may skip more contracts than it would with `opra`.
+- **The crypto edition lost money in every backtest so far.** On Alpaca crypto bars, 2026-10-01 to
+  10-15 with the shipped `config.crypto.yaml`: 344 trades, 2.3% win rate, −$2,765, no green days. A
+  slower variant (no reversal exits, trend filter, EMA50 + range triggers only), 2026-09-01 to 10-15:
+  474 trades, 8.2% win rate, −$3,901. The triggers flip often on 1-minute coin candles, and Alpaca's
+  ~0.25% fee per side means a trade must move about 0.5% just to break even. Use the crypto edition
+  to watch the machinery work on weekends, not to make money, unless your own backtests say otherwise.
+- **Crypto "VWAP" has no real volume behind it.** Alpaca's crypto venue is thin, so candles are built
+  from quote midpoints and VWAP behaves like an average price since midnight ET.

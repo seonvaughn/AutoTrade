@@ -6,22 +6,33 @@ KillSwitchRequest, which the Daily Goal / Kill Switch bot decides on).
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
+import os
 from collections import deque
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from ..core import calendar as cal
 from ..core.events import (Alert, CandleClosed, DailySummary, Fill, Heartbeat, HealthStatus, IndicatorValue,
                            KillSwitch, KillSwitchRequest, Leaderboard, PnLUpdate, PositionOpened, OptionQuote,
                            SessionEvent, SessionKind, SetupUpdate, Thought, Tick, TradeClosed, WorkerStatus, Purpose)
+from ..core.costs import fmt_qty
 from .base import Bot
 
 STATIC = Path(__file__).resolve().parents[2] / "dashboard"
+TOKEN_ENV = "SCALPCITY_DASHBOARD_TOKEN"
+LOOPBACK = {"127.0.0.1", "localhost", "::1"}
+
+# Which crew bots work for a worker (shown inside its building), by trigger.
+TRIGGER_BOTS = {"vwap_cross": ["vwap", "sig_vwap_cross"], "ema50_cross": ["ema50", "sig_ema50_cross"],
+                "orb": ["opening_range", "sig_orb"]}
+SHARED_CREW = ["price_feed", "candles", "atr", "signal_filter", "contract_selector", "position_sizer",
+               "risk_manager", "execution", "exit_manager", "ledger", "daily_goal", "journal"]
 
 
 class DashboardBot(Bot):
@@ -53,7 +64,7 @@ class DashboardBot(Bot):
         self.alerts: deque = deque(maxlen=20)
         for w in self.workers:
             self.thoughts[w.name] = deque(maxlen=60)
-            self.last_trades[w.name] = deque(maxlen=8)
+            self.last_trades[w.name] = deque(maxlen=60)
             self.stats[w.name] = {"trades": 0, "wins": 0, "pnl": 0.0}
 
         self.on(Heartbeat, self.on_heartbeat)
@@ -113,7 +124,10 @@ class DashboardBot(Bot):
 
     def on_opened(self, e: PositionOpened) -> None:
         self.positions[e.worker] = {"contract": e.contract.occ, "right": e.contract.right.value,
-                                    "strike": e.contract.strike, "qty": e.qty, "entry": e.entry_price,
+                                    "strike": e.contract.strike, "label": e.contract.label,
+                                    "kind": e.contract.kind, "mult": e.contract.multiplier,
+                                    "expiry": e.contract.expiry.isoformat() if e.contract.expiry else None,
+                                    "qty": e.qty, "entry": e.entry_price,
                                     "mark": e.entry_price, "opened": e.ts.isoformat()}
         self.push({"type": "fire", "worker": e.worker, "side": e.contract.right.value})
         self.dirty = True
@@ -131,8 +145,9 @@ class DashboardBot(Bot):
         s["wins"] += 1 if e.pnl > 0 else 0
         s["pnl"] += e.pnl
         self.last_trades[e.worker].appendleft({
-            "t": e.opened_at.strftime("%H:%M"), "side": e.contract.right.value, "qty": e.qty,
-            "sym": e.contract.underlying, "pnl": e.pnl, "reason": e.reason})
+            "t": e.opened_at.strftime("%H:%M"), "out": e.ts.strftime("%H:%M"), "side": e.contract.right.value,
+            "qty": e.qty, "sym": e.contract.underlying, "label": e.contract.label, "entry": e.entry_price,
+            "exit": e.exit_price, "pnl": e.pnl, "reason": e.reason})
         self.push({"type": "closed", "worker": e.worker, "pnl": e.pnl, "reason": e.reason})
         self.dirty = True
 
@@ -175,11 +190,12 @@ class DashboardBot(Bot):
 
     def on_fill(self, e: Fill) -> None:
         it = e.intent
+        what = it.contract.underlying if it.contract.kind == "crypto" else it.contract.right.value
         if it.purpose is Purpose.ENTRY:
-            text = f"{it.worker} {e.ts:%H:%M} {it.contract.right.arrow} bought {e.qty} {it.contract.right.value} @ {e.price:.2f}"
+            text = f"{it.worker} {e.ts:%H:%M} {it.contract.right.arrow} bought {fmt_qty(e.qty)} {what} @ {e.price:,.2f}"
             tone = "fire"
         else:
-            text = f"{it.worker} {e.ts:%H:%M} sold {e.qty} @ {e.price:.2f} · {it.reason.replace('_', ' ')}"
+            text = f"{it.worker} {e.ts:%H:%M} sold {fmt_qty(e.qty)} @ {e.price:,.2f} · {it.reason.replace('_', ' ')}"
             tone = "info"
         item = {"text": text, "tone": tone}
         self.ticker.appendleft(item)
@@ -224,24 +240,43 @@ class DashboardBot(Bot):
         pnl = self.pnl.get(w.name, {"realized": 0.0, "unrealized": 0.0})
         st = self.stats[w.name]
         if pos:
-            pos = {**pos, "pnl": round((pos["mark"] - pos["entry"]) * pos["qty"] * 100, 2)}
+            pos = {**pos, "pnl": round((pos["mark"] - pos["entry"]) * pos["qty"] * pos["mult"], 2)}
+        crew = [b for t in w.triggers for b in TRIGGER_BOTS.get(t, [])] + SHARED_CREW
         return {"name": w.name, "symbol": w.symbol, "triggers": w.triggers, "status": status,
                 "clock_reason": self.clocked_out.get(w.name), "setups": setups, "charge": best, "side": best_side,
                 "position": pos, "realized": round(pnl["realized"], 2), "unrealized": round(pnl["unrealized"], 2),
                 "trades": st["trades"], "wins": st["wins"], "last_trades": list(self.last_trades[w.name]),
-                "goal": w.daily_goal, "max_loss": w.max_daily_loss, "dte": w.dte}
+                "goal": w.daily_goal, "max_loss": w.max_daily_loss, "dte": w.dte, "crew": crew,
+                "settings": {"strike": w.strike, "dte": w.dte, "window": f"{w.start_time}-{w.end_time}",
+                             "sizing": vars(w.sizing), "exits": vars(w.exits), "cooldown": w.cooldown_minutes,
+                             "max_trades": w.max_trades_per_day, "trend_filter": w.trend_filter,
+                             "min_close_beyond_atr": w.min_close_beyond_atr}}
+
+    def crew(self) -> list[dict]:
+        orch = self.bot("orchestrator")
+        act = self.bus.activity
+        out = []
+        for name, skill in (orch.roster() if orch else []):
+            a = act.get(name)
+            handled, last, ts = (a[0], a[1], a[2]) if a else (0, "", None)
+            if name == "price_feed":  # a source: count what it brought in
+                handled, last = self.bus.published.get("Tick", 0), "Tick"
+            out.append({"name": name, "skill": skill, "handled": handled, "last": last,
+                        "ts": ts.strftime("%H:%M:%S") if ts else None})
+        return out
 
     def state(self) -> dict:
         close = cal.session_close(self.day).isoformat() if self.day else None
         orch = self.bot("orchestrator")
         return {
-            "mode": self.cfg.mode, "day": self.day.isoformat() if self.day else None,
+            "mode": self.cfg.mode, "market": self.cfg.market, "day": self.day.isoformat() if self.day else None,
             "clock": self.clock.isoformat() if self.clock else None, "session": self.session, "close": close,
             "health": self.health, "kill": self.kill, "vault": round(self.vault, 2),
             "prices": self.prices, "workers": [self.worker_state(w) for w in self.workers],
             "calendar": [{"day": d, "pnl": round(p or 0, 2)} for d, p in self.ctx.storage.daily_totals(25)],
             "summary": self.summary,
             "roster": [{"name": n, "skill": s} for n, s in orch.roster()] if orch else [],
+            "crew": self.crew(),
         }
 
     def snapshot(self) -> dict:
@@ -251,8 +286,29 @@ class DashboardBot(Bot):
                 "candles": {s: sorted(v.values(), key=lambda r: r["t"]) for s, v in self.candles.items()}}
 
     # ---------------------------------------------------------------- server
+    @staticmethod
+    def token() -> str:
+        return os.environ.get(TOKEN_ENV, "")
+
+    def authorized(self, query_token: str | None, cookie_token: str | None) -> bool:
+        want = self.token()
+        if not want:
+            return True
+        return any(t and hmac.compare_digest(t, want) for t in (query_token, cookie_token))
+
     def app(self) -> FastAPI:
         app = FastAPI(title="Scalp City")
+
+        @app.middleware("http")
+        async def guard(request: Request, call_next):
+            if not self.authorized(request.query_params.get("token"), request.cookies.get("scalpcity_token")):
+                return PlainTextResponse("Scalp City: add ?token=<your SCALPCITY_DASHBOARD_TOKEN> to the address",
+                                         status_code=401)
+            response = await call_next(request)
+            if self.token() and request.query_params.get("token"):
+                response.set_cookie("scalpcity_token", self.token(), httponly=True, samesite="strict")
+            return response
+
         app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
         @app.get("/")
@@ -272,6 +328,9 @@ class DashboardBot(Bot):
 
         @app.websocket("/ws")
         async def ws(sock: WebSocket):
+            if not self.authorized(sock.query_params.get("token"), sock.cookies.get("scalpcity_token")):
+                await sock.close(code=4401)
+                return
             await sock.accept()
             await sock.send_text(json.dumps(self.snapshot(), default=str))
             self.clients.add(sock)
@@ -291,6 +350,9 @@ class DashboardBot(Bot):
         import uvicorn
 
         host, port = self.cfg.dashboard.host, self.cfg.dashboard.port
+        if host not in LOOPBACK and not self.token():
+            raise RuntimeError(f"dashboard.host is {host}, which other devices can reach: set {TOKEN_ENV} to a "
+                               f"long random string first (the dashboard has a kill switch), or use 127.0.0.1")
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
             try:
                 probe.bind((host, port))

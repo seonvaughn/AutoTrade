@@ -22,7 +22,7 @@ class Storage:
     def __init__(self, path: str, run: str, mode: str) -> None:
         if path != ":memory:":
             Path(path).parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(path)
+        self.db = sqlite3.connect(path, check_same_thread=False)  # one event loop uses it; tests serve from a thread
         self.db.executescript(SCHEMA)
         self.run, self.mode = run, mode
 

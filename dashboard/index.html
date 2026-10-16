@@ -45,6 +45,7 @@
       <div class="tower-head">
         <h2 id="tower-name">—</h2>
         <span id="tower-status" class="pill">watching</span>
+        <button id="enter-btn" class="enter" type="button" title="Go inside this building">Enter ▸</button>
       </div>
       <div class="sub">Signal scanner</div>
       <div id="scanner"></div>
@@ -81,6 +82,28 @@
       <div class="center"><button id="roster-close" type="button">Close</button></div>
     </div>
   </div>
+
+  <div id="inside" hidden>
+    <div class="inside-frame" role="dialog" aria-modal="true" aria-labelledby="inside-title">
+      <header class="inside-top">
+        <div>
+          <div class="kicker" id="inside-kicker">Tower</div>
+          <h1 id="inside-title">—</h1>
+        </div>
+        <span id="inside-status" class="pill"></span>
+        <div class="spacer"></div>
+        <button id="inside-exit" class="ghost" type="button">◂ Exit building</button>
+      </header>
+      <div class="inside-body">
+        <nav id="elevator" aria-label="Floors"></nav>
+        <section id="floor" aria-live="polite"></section>
+      </div>
+    </div>
+  </div>
+
+  <div id="botcard" class="botcard" hidden></div>
+  <div id="hovertip" class="hovertip" hidden></div>
+  <div id="hint" class="hint">Drag to look around · click a tower or a bot · double-click a tower to go inside</div>
 
   <div id="offline" hidden>Disconnected from the bots — reconnecting…</div>
   <script type="module" src="/static/app.js"></script>

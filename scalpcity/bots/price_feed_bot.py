@@ -43,7 +43,8 @@ class PriceFeedBot(Bot):
                 await self.bus.emit(Alert(cal.session_open(d), "warning", f"no data for {d}, skipped"))
                 continue
             minutes = sorted({m for per in bars.values() for m in per})
-            await self.bus.emit(Heartbeat(cal.session_open(d) - timedelta(seconds=1)))
+            pre = cal.session_open(d) - timedelta(seconds=1)
+            await self.bus.emit(Heartbeat(pre if pre.date() == d else cal.session_open(d)))  # crypto opens at 00:00
             for i, m in enumerate(minutes):
                 if self.stopped:
                     return
@@ -93,7 +94,10 @@ class PriceFeedBot(Bot):
 
         await self._backfill(live_client(self.cfg))
         d = self.cfg.data
-        if d.live_data == "alpaca":
+        if cal.is_crypto():
+            from ..data.alpaca_data import AlpacaCryptoStream
+            stream = AlpacaCryptoStream(self.cfg.symbols, self._on_trade, self._on_status)
+        elif d.live_data == "alpaca":
             from ..data.alpaca_data import AlpacaStream
             stream = AlpacaStream(self.cfg.symbols, self._on_trade, d.alpaca_stock_feed, self._on_status)
         else:

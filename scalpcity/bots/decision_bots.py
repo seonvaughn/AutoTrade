@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 import itertools
-import math
 
 from ..core import calendar as cal
+from ..core.costs import round_qty
 from ..core.events import (ContractRejected, ContractSelected, HealthStatus, KillSwitch, KillSwitchRequest,
                            OrderApproved, OrderFailed, OrderIntent, OrderRejected, OrderSide, PnLUpdate, PositionOpened,
                            Purpose, SessionEvent, SessionKind, Side, TradeClosed, WorkerSignal, WorkerStatus)
@@ -20,17 +20,32 @@ class ContractSelectorBot(Bot):
     def setup(self) -> None:
         self.on(WorkerSignal, self.on_signal)
 
+    MAX_EXPIRY_SEARCH = 7  # trading days to look past `dte` for a listed expiry (most stocks list Fridays only)
+
     async def on_signal(self, ws: WorkerSignal) -> None:
         w = self.cfg.worker(ws.worker)
         sig = ws.signal
-        expiry = cal.next_trading_day(sig.ts.date(), w.dte)
-        chain = await self.bot("options_chain").get_chain(sig.symbol, expiry, sig.side, sig.close)
-        if not chain:
-            self.emit(ContractRejected(sig.ts, ws.worker, sig, f"no {sig.side.value} chain for {expiry}"))
-            return
-        q = self.pick(chain, w.strike, sig.side, sig.close)
+        chain_bot = self.bot("options_chain")
+        if cal.is_crypto():
+            q = await chain_bot.crypto_quote(sig.symbol)
+            if q is None:
+                self.emit(ContractRejected(sig.ts, ws.worker, sig, f"no quote for {sig.symbol}"))
+                return
+        else:
+            expiry = cal.next_trading_day(sig.ts.date(), w.dte)
+            chain = []
+            for _ in range(self.MAX_EXPIRY_SEARCH + 1):
+                chain = await chain_bot.get_chain(sig.symbol, expiry, sig.side, sig.close)
+                if chain:
+                    break
+                expiry = cal.next_trading_day(expiry)
+            if not chain:
+                self.emit(ContractRejected(sig.ts, ws.worker, sig, f"no {sig.side.value} chain within "
+                                                                   f"{self.MAX_EXPIRY_SEARCH} days of {w.dte}DTE"))
+                return
+            q = self.pick(chain, w.strike, sig.side, sig.close)
         risk = self.cfg.risk
-        if q.ask < risk.min_premium or q.ask > risk.max_premium:
+        if q.contract.kind == "option" and (q.ask < risk.min_premium or q.ask > risk.max_premium):
             self.emit(ContractRejected(sig.ts, ws.worker, sig,
                                        f"premium ${q.ask:.2f} outside ${risk.min_premium}-${risk.max_premium}"))
         elif q.bid <= 0 or q.spread_pct * 100 > risk.max_spread_pct:
@@ -63,15 +78,16 @@ class PositionSizerBot(Bot):
     def on_selected(self, e: ContractSelected) -> None:
         w = self.cfg.worker(e.worker)
         s = w.sizing
-        unit = e.quote.ask * 100
+        c = e.quote.contract
+        unit = e.quote.ask * c.multiplier
         if s.mode == "fixed":
             qty = s.contracts
         elif s.mode == "budget":
-            qty = math.floor(s.budget / unit)
+            qty = s.budget / unit
         else:  # risk: lose `risk` dollars if the stop is hit
-            qty = math.floor(s.risk / (unit * w.exits.stop_loss_pct / 100.0))
-        qty = min(qty, s.max_contracts)
-        if qty < 1:
+            qty = s.risk / (unit * w.exits.stop_loss_pct / 100.0)
+        qty = round_qty(c, min(qty, s.max_contracts))
+        if qty <= 0 or (c.kind == "option" and qty < 1):
             self.emit(ContractRejected(e.ts, e.worker, e.signal, f"size rounds to 0 at ${e.quote.ask:.2f}"))
             return
         self.emit(OrderIntent(e.ts, e.worker, e.quote.contract, OrderSide.BUY, qty, e.quote.ask, Purpose.ENTRY,
@@ -92,7 +108,8 @@ class RiskManagerBot(Bot):
         self.on(HealthStatus, self.on_health)
         self.on(WorkerStatus, self.on_status)
         self.on(OrderFailed, self.on_failed)
-        self.on(PositionOpened, lambda e: self.exposure.__setitem__(e.worker, e.qty * e.entry_price * 100))
+        self.on(PositionOpened, lambda e: self.exposure.__setitem__(e.worker,
+                                                                    e.qty * e.entry_price * e.contract.multiplier))
         self.on(TradeClosed, lambda e: self.exposure.pop(e.worker, None))
         self.on(SessionEvent, self.on_session)
 
@@ -121,13 +138,14 @@ class RiskManagerBot(Bot):
         if reason:
             self.emit(OrderRejected(o.ts, o, reason))
         else:
-            self.exposure[o.worker] = o.qty * o.limit * 100
+            self.exposure[o.worker] = o.qty * o.limit * o.contract.multiplier
             self.emit(OrderApproved(o.ts, o))
 
     async def _check(self, o: OrderIntent) -> str | None:
         r = self.cfg.risk
         clock = self.bot("clock")
-        cost = o.qty * o.limit * 100
+        cost = o.qty * o.limit * o.contract.multiplier
+        crypto = o.contract.kind == "crypto"
         if self.kill:
             return "kill switch engaged"
         if self.problems:
@@ -141,9 +159,10 @@ class RiskManagerBot(Bot):
         if sum(self.exposure.values()) + cost > r.max_premium_exposure:
             return f"premium exposure would exceed ${r.max_premium_exposure:,.0f}"
         acct = await self.ctx.broker.account()
-        if cost > acct.options_buying_power:
-            return f"not enough buying power (${acct.options_buying_power:,.0f})"
-        if r.pdt_guard and not acct.cash_account and acct.equity < 25000 and acct.daytrade_count >= 3:
+        bp = acct.crypto_buying_power if crypto else acct.options_buying_power
+        if cost > bp:
+            return f"not enough buying power (${bp:,.0f})"
+        if r.pdt_guard and not crypto and not acct.cash_account and acct.equity < 25000 and acct.daytrade_count >= 3:
             return "pattern-day-trader guard: 3 day trades in 5 days on a sub-$25k margin account"
         return None
 

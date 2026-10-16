@@ -1,6 +1,6 @@
-"""Loading 1-minute bars for replay/backtest: CSV files, Polygon download, or synthetic.
+"""Loading 1-minute bars for replay/backtest: CSV files, a Polygon or Alpaca download, or synthetic.
 
-CSV layout: <csv_dir>/<SYMBOL>/<YYYY-MM-DD>.csv with header
+CSV layout: <csv_dir>/<SYMBOL>/<YYYY-MM-DD>.csv (BTC/USD is stored as BTC-USD) with header
     timestamp,open,high,low,close,volume
 timestamp = ISO-8601 with offset, or epoch milliseconds.
 """
@@ -16,7 +16,11 @@ from pathlib import Path
 from ..core import calendar as cal
 from ..core.events import Candle
 
-SYNTH_BASE = {"SPY": 770.0, "QQQ": 750.0, "IWM": 245.0}
+SYNTH_BASE = {"SPY": 770.0, "QQQ": 750.0, "IWM": 245.0, "BTC/USD": 80000.0, "ETH/USD": 2400.0}
+
+
+def bar_path(csv_dir, symbol: str, day: date) -> Path:
+    return Path(csv_dir) / symbol.replace("/", "-") / f"{day}.csv"
 
 
 def read_csv(path: Path, symbol: str) -> list[Candle]:
@@ -53,9 +57,9 @@ def synthetic_day(symbol: str, day: date) -> list[Candle]:
     day_index = (day - date(2026, 1, 1)).days
     price = SYNTH_BASE.get(symbol, 100.0) * (1 + 0.0004 * day_index) * (1 + rng.gauss(0, 0.004))
     daily_vol = {"SPY": 0.008, "QQQ": 0.011, "IWM": 0.014}.get(symbol, 0.012) * rng.uniform(0.7, 1.4)
-    per_min = daily_vol / math.sqrt(390)
     open_t, close_t = cal.session_open(day), cal.session_close(day)
     n = int((close_t - open_t).total_seconds() // 60)
+    per_min = daily_vol / math.sqrt(n)
     drift = 0.0
     bars = []
     for i in range(n):
@@ -75,6 +79,25 @@ def synthetic_day(symbol: str, day: date) -> list[Candle]:
     return bars
 
 
+def fill_gaps(bars: list[Candle], day: date) -> list[Candle]:
+    """Crypto: a minute with no trades has no bar; fill it with a flat bar at the last price so the
+    replay keeps ticking (a live quote stream never goes quiet like that)."""
+    if not bars:
+        return bars
+    out, i = [], 0
+    t, end = bars[0].start, min(cal.session_close(day), bars[-1].start + timedelta(minutes=1))
+    last = bars[0].close
+    while t < end:
+        if i < len(bars) and bars[i].start == t:
+            out.append(bars[i])
+            last = bars[i].close
+            i += 1
+        else:
+            out.append(Candle(bars[0].symbol, t, last, last, last, last, 0.0))
+        t += timedelta(minutes=1)
+    return out
+
+
 class BarLoader:
     """Returns the regular-hours 1-minute bars of one symbol for one day."""
 
@@ -84,31 +107,43 @@ class BarLoader:
     def load(self, symbol: str, day: date) -> list[Candle]:
         if self.source == "synthetic":
             return synthetic_day(symbol, day)
-        path = self.dir / symbol / f"{day}.csv"
-        if not path.exists() and self.source == "polygon":
-            download([symbol], day, day, str(self.dir))
-        return read_csv(path, symbol) if path.exists() else []
+        path = bar_path(self.dir, symbol, day)
+        if not path.exists() and self.source in ("polygon", "alpaca"):
+            download([symbol], day, day, str(self.dir), self.source)
+        bars = read_csv(path, symbol) if path.exists() else []
+        return fill_gaps(bars, day) if "/" in symbol else bars
 
 
-def download(symbols: list[str], start: date, end: date, csv_dir: str) -> list[Path]:
-    """Download Polygon minute bars for every trading day in [start, end] to CSV."""
-    from .polygon import PolygonClient
+def download(symbols: list[str], start: date, end: date, csv_dir: str, source: str = "polygon") -> list[Path]:
+    """Download minute bars for every trading day in [start, end] to CSV.
+
+    source "alpaca": Alpaca's full-market (SIP) stock history or crypto bars, using your Alpaca keys.
+    source "polygon": Polygon (the free plan allows about 5 requests a minute, so this is slow)."""
+
+    def client():
+        if source == "alpaca":
+            from .alpaca_data import AlpacaDataClient
+            return AlpacaDataClient(stock_feed="sip")
+        from .polygon import PolygonClient
+        return PolygonClient()
 
     async def run() -> list[Path]:
-        client = PolygonClient()
+        c = client()
         written = []
         try:
             for d in cal.trading_days(start, end):
+                if source == "alpaca" and cal.now_et() < cal.session_close(d) + timedelta(minutes=16):
+                    continue  # unfinished day (and the free plan holds back the last 15 min of SIP data)
                 for s in symbols:
-                    path = Path(csv_dir) / s / f"{d}.csv"
+                    path = bar_path(csv_dir, s, d)
                     if path.exists():
                         continue
-                    bars = await client.minute_bars(s, d)
+                    bars = await c.minute_bars(s, d)
                     if bars:
                         write_csv(path, bars)
                         written.append(path)
         finally:
-            await client.close()
+            await c.close()
         return written
 
     return asyncio.run(run()) if not _in_loop() else []

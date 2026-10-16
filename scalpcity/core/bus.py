@@ -28,6 +28,8 @@ class EventBus:
         self._queue: deque[Event] = deque()
         self._draining = False
         self.delivered = 0
+        self.published: dict[str, int] = defaultdict(int)  # event type -> count (for the dashboard crew view)
+        self.activity: dict[str, list] = {}  # owner -> [events handled, last event type, last event ts]
 
     def subscribe(self, event_type: type, handler: Handler, owner: str = "?") -> None:
         self._subs[event_type].append((owner, handler))
@@ -38,6 +40,7 @@ class EventBus:
             self._subs[ty] = [(o, h) for o, h in self._subs[ty] if o != owner]
 
     def publish(self, event: Event) -> None:
+        self.published[type(event).__name__] += 1
         self._queue.append(event)
 
     async def emit(self, event: Event) -> None:
@@ -53,6 +56,12 @@ class EventBus:
             while self._queue:
                 event = self._queue.popleft()
                 for owner, handler in list(self._subs.get(type(event), ())):
+                    a = self.activity.get(owner)
+                    if a is None:
+                        a = self.activity[owner] = [0, "", None]
+                    a[0] += 1
+                    a[1] = type(event).__name__
+                    a[2] = event.ts
                     try:
                         result = handler(event)
                         if inspect.isawaitable(result):

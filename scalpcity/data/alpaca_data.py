@@ -6,6 +6,11 @@ Endpoints used (Market Data API v2 / v1beta1):
   GET  /v1beta1/options/snapshots/{underlying}              option chain w/ quotes + greeks
   GET  /v1beta1/options/snapshots?symbols=...               single contract snapshot
   WSS  wss://stream.data.alpaca.markets/v2/{feed}           real-time trades (T=t)
+Crypto (market: crypto):
+  GET  /v1beta3/crypto/us/bars                              coin minute bars (backfill, backtests)
+  GET  /v1beta3/crypto/us/latest/quotes                     coin bid/ask
+  WSS  wss://stream.data.alpaca.markets/v1beta3/crypto/us   real-time quotes (T=q); candles use the mid
+       price, because trades on Alpaca's own crypto venue are too sparse to build 1-minute candles from
 
 Feeds: stocks "iex" (free, real-time, IEX exchange only) or "sip" (paid, all exchanges);
 options "indicative" (free, derived from OPRA) or "opra" (paid, the real exchange quotes).
@@ -22,10 +27,11 @@ from typing import Awaitable, Callable, Optional
 import httpx
 
 from ..core import calendar as cal
-from ..core.events import Candle, OptionContract, OptionQuote, Side
+from ..core.events import Candle, CryptoAsset, OptionContract, OptionQuote, Side, is_crypto_symbol
 
 BASE = "https://data.alpaca.markets"
 WS = "wss://stream.data.alpaca.markets/v2/{feed}"
+CRYPTO_WS = "wss://stream.data.alpaca.markets/v1beta3/crypto/us"
 
 
 def keys() -> tuple[str, str]:
@@ -81,15 +87,23 @@ class AlpacaDataClient:
     async def close(self) -> None:
         await self.http.aclose()
 
+    async def _get(self, path: str, params: dict) -> httpx.Response:
+        """GET with retry on 429 (the free plan allows ~200 requests a minute)."""
+        for attempt in range(6):
+            r = await self.http.get(path, params=params)
+            if r.status_code != 429:
+                break
+            await asyncio.sleep(min(2 ** attempt, 30))
+        if r.status_code >= 400:
+            raise RuntimeError(f"Alpaca data GET {path} -> {r.status_code}: {r.text[:300]}")
+        return r
+
     async def _paged(self, path: str, params: dict, key: str) -> list:
         """Follow next_page_token; returns the concatenated list (bars) or dict items (snapshots)."""
         out: list = []
         params = dict(params)
         while True:
-            r = await self.http.get(path, params=params)
-            if r.status_code >= 400:
-                raise RuntimeError(f"Alpaca data GET {path} -> {r.status_code}: {r.text[:300]}")
-            body = r.json()
+            body = (await self._get(path, params)).json()
             page = body.get(key) or ([] if key == "bars" else {})
             out.extend(page if isinstance(page, list) else page.items())
             token = body.get("next_page_token")
@@ -99,10 +113,31 @@ class AlpacaDataClient:
 
     async def minute_bars(self, ticker: str, day: date, rth_only: bool = True) -> list[Candle]:
         start = datetime.combine(day, datetime.min.time(), cal.ET)
+        if is_crypto_symbol(ticker):
+            return await self._crypto_bars(ticker, start, rth_only)
         params = {"timeframe": "1Min", "start": start.isoformat(), "end": (start + timedelta(days=1)).isoformat(),
                   "feed": self.stock_feed, "adjustment": "raw", "sort": "asc", "limit": 10000}
         res = await self._paged(f"/v2/stocks/{ticker}/bars", params, "bars")
         return _bars_from_results(ticker, res, rth_only)
+
+    async def _crypto_bars(self, symbol: str, start: datetime, rth_only: bool) -> list[Candle]:
+        params = {"symbols": symbol, "timeframe": "1Min", "start": start.isoformat(),
+                  "end": (start + timedelta(days=1)).isoformat(), "limit": 10000, "sort": "asc"}
+        out: list[dict] = []
+        while True:
+            body = (await self._get("/v1beta3/crypto/us/bars", params)).json()
+            out += (body.get("bars") or {}).get(symbol, [])
+            if not body.get("next_page_token"):
+                return _bars_from_results(symbol, out, rth_only)
+            params["page_token"] = body["next_page_token"]
+
+    async def crypto_quote(self, asset: CryptoAsset) -> Optional[OptionQuote]:
+        r = await self._get("/v1beta3/crypto/us/latest/quotes", {"symbols": asset.underlying})
+        q = (r.json().get("quotes") or {}).get(asset.underlying)
+        if not q or not q.get("ap") or not q.get("bp"):
+            return None
+        bid, ask = float(q["bp"]), float(q["ap"])
+        return OptionQuote(cal.now_et(), asset, bid, ask, None, None, (bid + ask) / 2)
 
     async def chain(self, underlying: str, expiry: date, right: Side, spot: float, width: float = 0.04) -> list[OptionQuote]:
         params = {"feed": self.options_feed, "type": "call" if right is Side.CALL else "put",
@@ -113,7 +148,9 @@ class AlpacaDataClient:
         now = cal.now_et()
         return [q for q in (_quote_from_snapshot(occ, r, now, spot) for occ, r in res) if q]
 
-    async def quote(self, contract: OptionContract) -> Optional[OptionQuote]:
+    async def quote(self, contract) -> Optional[OptionQuote]:
+        if contract.kind == "crypto":
+            return await self.crypto_quote(contract)
         res = await self._paged("/v1beta1/options/snapshots", {"symbols": contract.occ, "feed": self.options_feed},
                                 "snapshots")
         snap = dict(res).get(contract.occ)
@@ -129,6 +166,9 @@ class AlpacaStream:
                  on_status: Optional[Callable[[str, str], Awaitable[None]]] = None) -> None:
         self.symbols, self.on_trade, self.feed, self.on_status = symbols, on_trade, feed, on_status
         self.url = WS.format(feed=feed)
+
+    def subscription(self) -> dict:
+        return {"action": "subscribe", "trades": self.symbols}
 
     async def handle(self, raw: str) -> None:
         for m in json.loads(raw):
@@ -147,7 +187,7 @@ class AlpacaStream:
             try:
                 async with websockets.connect(self.url, ping_interval=20) as ws:
                     await ws.send(json.dumps({"action": "auth", "key": key, "secret": secret}))
-                    await ws.send(json.dumps({"action": "subscribe", "trades": self.symbols}))
+                    await ws.send(json.dumps(self.subscription()))
                     backoff = 1.0
                     if self.on_status:
                         await self.on_status("info", f"Alpaca {self.feed} stream connected ({', '.join(self.symbols)})")
@@ -160,3 +200,31 @@ class AlpacaStream:
                     await self.on_status("critical", f"Alpaca stream down: {exc}; retrying in {backoff:.0f}s")
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, 30.0)
+
+
+class AlpacaCryptoStream(AlpacaStream):
+    """Real-time crypto quotes -> callback(symbol, ts, mid, 0.0), only when the mid changes."""
+
+    def __init__(self, symbols: list[str], on_trade: Callable[..., Awaitable[None]],
+                 on_status: Optional[Callable[[str, str], Awaitable[None]]] = None) -> None:
+        super().__init__(symbols, on_trade, "crypto", on_status)
+        self.url = CRYPTO_WS
+        self.last_mid: dict[str, float] = {}
+
+    def subscription(self) -> dict:
+        return {"action": "subscribe", "quotes": self.symbols}
+
+    async def handle(self, raw: str) -> None:
+        for m in json.loads(raw):
+            t = m.get("T")
+            if t == "q":
+                bid, ask = float(m.get("bp") or 0), float(m.get("ap") or 0)
+                if bid <= 0 or ask <= 0:
+                    continue
+                mid = round((bid + ask) / 2, 6)
+                if self.last_mid.get(m["S"]) == mid:
+                    continue
+                self.last_mid[m["S"]] = mid
+                await self.on_trade(m["S"], parse_ts(m["t"]), mid, 0.0)
+            elif t == "error":
+                raise RuntimeError(f"Alpaca stream error {m.get('code')}: {m.get('msg')}")

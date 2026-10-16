@@ -3,6 +3,7 @@
 #   POLYGON_API_KEY, ALPACA_API_KEY_ID, ALPACA_API_SECRET_KEY, SCALPCITY_ALERT_WEBHOOK (optional)
 
 mode: paper                 # backtest | replay | paper | live   (CLI command overrides this)
+market: options             # options (this file) | crypto (see config.crypto.yaml)
 live_trading_enabled: false # must be true (plus an env var) before real money can trade
 
 entry_cutoff: "15:30"       # no new trades after this (ET)
@@ -10,7 +11,7 @@ flatten_time: "15:55"       # close everything (half days shift automatically)
 db_path: data/scalpcity.db
 
 data:
-  source: polygon           # backtest/replay bars: polygon (real data) | csv | synthetic (testing only)
+  source: alpaca            # backtest/replay bars: alpaca | polygon (real data) | csv | synthetic (testing only)
   live_data: alpaca         # paper/live prices: alpaca (uses your Alpaca keys) | polygon (needs real-time plans)
   alpaca_stock_feed: iex    # iex = free, real-time, IEX exchange only | sip = paid, every exchange
   alpaca_options_feed: indicative  # indicative = free, derived quotes | opra = paid, real exchange quotes
@@ -34,17 +35,26 @@ risk:                       # account-wide limits (apply to all workers together
 
 sim:                        # simulator used by backtest / replay
   starting_cash: 30000
-  iv: {SPY: 0.15, QQQ: 0.18, IWM: 0.22}
+  # implied volatility used to model option prices when real option bars aren't used (or are missing).
+  # Single-stock values are the at-the-money weekly IVs seen on 2026-10-16; update them now and then.
+  iv: {SPY: 0.15, QQQ: 0.18, IWM: 0.22, NVDA: 0.38, TSLA: 0.67, AAPL: 0.27, META: 0.64, AMZN: 0.30,
+       AMD: 0.57, MSFT: 0.25}
+  strike_step: {SPY: 1, QQQ: 1, IWM: 1, NVDA: 2.5, TSLA: 2.5, AAPL: 2.5, META: 2.5, AMZN: 2.5, AMD: 2.5,
+                MSFT: 2.5}
+  # weekdays with a listed expiry (0=Mon .. 4=Fri), as listed in October 2026 (TSLA: Mon/Fri; others Mon/Wed/Fri).
+  expiry_weekdays: {SPY: [0, 1, 2, 3, 4], QQQ: [0, 1, 2, 3, 4], IWM: [0, 1, 2, 3, 4], NVDA: [0, 2, 4],
+                    TSLA: [0, 4], AAPL: [0, 2, 4], META: [0, 2, 4], AMZN: [0, 2, 4], AMD: [0, 2, 4],
+                    MSFT: [0, 2, 4]}
   half_spread_pct: 0.5
   fee_per_contract: 0.03
-  use_historical_option_bars: false   # true = price options from real Polygon option bars (needs options plan)
+  use_historical_option_bars: true    # price options from real option bars (data.source alpaca or polygon)
 
 dashboard:
   enabled: true
   host: 127.0.0.1
   port: 8765
 
-# The five "workers" (towers) from the video. Each one is a ticker + the triggers it trades
+# The workers (towers). The first five are from the video. Each one is a ticker + the triggers it trades
 # + its own sizing, exits and daily goal. Sizes below are deliberately SMALL; the video's
 # QQQ OG was putting $6k-13k into each trade (18-37 contracts @ ~$3.50).
 workers:
@@ -91,3 +101,61 @@ workers:
     sizing: {mode: budget, budget: 1000, max_contracts: 20}
     daily_goal: 400
     max_daily_loss: 300
+
+  # ---- single stocks. dte: 0 means the nearest listed expiry (most list Mon/Wed/Fri, so on Tue/Thu
+  # the bots buy the next day's contract). Small budgets: these premiums run $3-15 per share at the money.
+  - name: NVDA
+    symbol: NVDA
+    triggers: [vwap_cross, ema50_cross, orb]
+    strike: atm
+    sizing: {mode: budget, budget: 800, max_contracts: 5}
+    daily_goal: 300
+    max_daily_loss: 200
+
+  - name: TSLA
+    symbol: TSLA
+    triggers: [vwap_cross, ema50_cross, orb]
+    strike: atm
+    sizing: {mode: budget, budget: 800, max_contracts: 5}
+    daily_goal: 300
+    max_daily_loss: 200
+
+  - name: AAPL
+    symbol: AAPL
+    triggers: [vwap_cross, ema50_cross, orb]
+    strike: atm
+    sizing: {mode: budget, budget: 800, max_contracts: 5}
+    daily_goal: 300
+    max_daily_loss: 200
+
+  - name: META
+    symbol: META
+    triggers: [vwap_cross, ema50_cross, orb]
+    strike: atm
+    sizing: {mode: budget, budget: 800, max_contracts: 5}
+    daily_goal: 300
+    max_daily_loss: 200
+
+  - name: AMZN
+    symbol: AMZN
+    triggers: [vwap_cross, ema50_cross, orb]
+    strike: atm
+    sizing: {mode: budget, budget: 800, max_contracts: 5}
+    daily_goal: 300
+    max_daily_loss: 200
+
+  - name: AMD
+    symbol: AMD
+    triggers: [vwap_cross, ema50_cross, orb]
+    strike: atm
+    sizing: {mode: budget, budget: 800, max_contracts: 5}
+    daily_goal: 300
+    max_daily_loss: 200
+
+  - name: MSFT
+    symbol: MSFT
+    triggers: [vwap_cross, ema50_cross, orb]
+    strike: atm
+    sizing: {mode: budget, budget: 800, max_contracts: 5}
+    daily_goal: 300
+    max_daily_loss: 200

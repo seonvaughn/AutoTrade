@@ -11,6 +11,9 @@ from ..core.events import (ContractRejected, OrderFailed, OrderRejected, Positio
 from .base import Bot
 
 
+LONG_ONLY = "long only (Alpaca can't short crypto)"
+
+
 class SignalFilterBot(Bot):
     name = "signal_filter"
     skill = "Decide which worker (if any) acts on each signal"
@@ -75,6 +78,8 @@ class SignalFilterBot(Bot):
     def _reject_reason(self, w, sig: Signal, s: dict) -> str | None:
         ts: datetime = sig.ts
         d = ts.date()
+        if cal.is_crypto() and sig.side is Side.PUT:
+            return LONG_ONLY
         if s["clocked_out"]:
             return "clocked out for the day"
         if s["in_position"]:

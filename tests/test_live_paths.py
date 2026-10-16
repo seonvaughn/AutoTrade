@@ -57,7 +57,7 @@ def test_alpaca_requests(monkeypatch):
         return acct, oid, mkt, st, pos
 
     acct, oid, mkt, st, pos = asyncio.run(go())
-    assert acct == Account(31000.5, 30000.0, 29000.0, 2, False, False)
+    assert acct == Account(31000.5, 30000.0, 29000.0, 2, False, False, 30000.0)  # crypto falls back to cash
     assert oid == "abc" and mkt == "abc"
     body = json.loads(seen[1].content)
     assert body == {"symbol": "QQQ261002C00752000", "qty": "18", "side": "buy", "time_in_force": "day",

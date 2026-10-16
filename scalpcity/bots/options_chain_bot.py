@@ -4,17 +4,18 @@ Answers "what does the chain look like?" for the contract selector, and streams
 quotes for every contract we hold so the exit manager and ledger can react.
 
 Sim (replay/backtest): Black-Scholes on trading-time from the replayed underlying
-(or real Polygon option bars when sim.use_historical_option_bars is on), with a
-modeled bid/ask spread. Live/paper: Alpaca or Polygon option snapshots (data.live_data).
+(or real option bars when sim.use_historical_option_bars is on), with a modeled
+bid/ask spread and expiry calendar. Crypto: the replayed price ± a modeled spread.
+Live/paper: Alpaca or Polygon option snapshots (data.live_data), Alpaca crypto quotes.
 """
 from __future__ import annotations
 
 import asyncio
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from ..core import calendar as cal
-from ..core.events import (OptionContract, OptionQuote, PositionOpened, Side, Tick, TradeClosed)
+from ..core.events import CryptoAsset, OptionContract, OptionQuote, PositionOpened, Side, Tick, TradeClosed
 from ..core.options_math import bs_delta, bs_price, round_tick
 from .base import Bot
 
@@ -24,14 +25,27 @@ class SimChain:
         self.cfg = cfg
         self.spot: dict[str, float] = {}
         self.hist = None
-        if cfg.sim.use_historical_option_bars:
-            from ..data.polygon import HistoricalOptionBars
-            self.hist = HistoricalOptionBars(cfg.data.option_bars_dir)
+        if cfg.sim.use_historical_option_bars and not cal.is_crypto() and cfg.data.source != "synthetic":
+            from ..data.option_bars import HistoricalOptionBars
+            self.hist = HistoricalOptionBars(cfg.data.option_bars_dir, cfg.data.source)
 
-    def quote(self, c: OptionContract, ts: datetime) -> Optional[OptionQuote]:
+    def listed(self, underlying: str, expiry: date) -> bool:
+        """Modeled expiry calendar from sim.expiry_weekdays (Fridays for unlisted symbols)."""
+        if not cal.is_trading_day(expiry):
+            return False
+        days = self.cfg.sim.expiry_weekdays.get(underlying, [4])
+        if expiry.weekday() in days:
+            return True
+        nxt = expiry + timedelta(days=1)  # a holiday on a listed weekday moves the expiry one day earlier
+        return nxt.weekday() < 5 and not cal.is_trading_day(nxt) and nxt.weekday() in days
+
+    def quote(self, c, ts: datetime) -> Optional[OptionQuote]:
         spot = self.spot.get(c.underlying)
         if spot is None:
             return None
+        if c.kind == "crypto":
+            half = spot * self.cfg.sim.crypto_half_spread_pct / 100.0
+            return OptionQuote(ts, c, spot - half, spot + half, None, None, spot)
         minutes = cal.minutes_to_expiry(ts, c.expiry)
         iv = self.cfg.sim.iv.get(c.underlying, 0.2)
         is_call = c.right is Side.CALL
@@ -49,7 +63,7 @@ class SimChain:
 
     def chain(self, underlying: str, expiry: date, right: Side, ts: datetime) -> list[OptionQuote]:
         spot = self.spot.get(underlying)
-        if spot is None:
+        if spot is None or not self.listed(underlying, expiry):
             return []
         step = self.cfg.sim.strike_step.get(underlying, 1.0)
         atm = round(spot / step) * step
@@ -102,12 +116,15 @@ class OptionsChainBot(Bot):
             return self.sim.chain(underlying, expiry, right, self.last_ts)
         return await self._poly().chain(underlying, expiry, right, spot)
 
-    async def quote(self, contract: OptionContract) -> Optional[OptionQuote]:
+    async def quote(self, contract) -> Optional[OptionQuote]:
         if self.sim:
             return self.sim.quote(contract, self.last_ts)
         return await self._poly().quote(contract)
 
-    def quote_now(self, contract: OptionContract) -> Optional[OptionQuote]:
+    async def crypto_quote(self, symbol: str) -> Optional[OptionQuote]:
+        return await self.quote(CryptoAsset(symbol))
+
+    def quote_now(self, contract) -> Optional[OptionQuote]:
         """Synchronous quote for the simulated broker."""
         return self.sim.quote(contract, self.last_ts) if self.sim else None
 

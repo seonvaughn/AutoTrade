@@ -93,8 +93,8 @@ def test_config_live_data_choices():
     cfg = Config(mode="paper", workers=[WorkerConfig("Q", "QQQ")])
     cfg.broker.name = "alpaca"
     validate(cfg)                                    # default: Alpaca data, free feeds
-    assert (cfg.data.live_data, cfg.data.alpaca_stock_feed, cfg.data.alpaca_options_feed) == ("alpaca", "iex",
-                                                                                             "indicative")
+    d = cfg.data
+    assert (d.live_data, d.alpaca_stock_feed, d.alpaca_options_feed) == ("alpaca", "iex", "indicative")
     cfg.data.alpaca_stock_feed = "nasdaq"
     with pytest.raises(ValueError, match="alpaca_stock_feed"):
         validate(cfg)

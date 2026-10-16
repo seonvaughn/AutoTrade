@@ -72,12 +72,19 @@ class SimConfig:
     min_half_spread: float = 0.01
     fee_per_contract: float = 0.03    # regulatory fees (Alpaca options are commission-free)
     strike_step: dict[str, float] = field(default_factory=lambda: {"SPY": 1.0, "QQQ": 1.0, "IWM": 1.0})
-    use_historical_option_bars: bool = False  # backtest with real Polygon option prices
+    use_historical_option_bars: bool = False  # backtest with real option prices (data.source: polygon | alpaca)
+    # weekdays (0=Mon .. 4=Fri) with a listed expiry, per symbol; unlisted symbols get Fridays only.
+    # A holiday on a listed weekday moves that expiry to the trading day before. Live trading uses the
+    # real chain instead, so this only matters for backtests and replays.
+    expiry_weekdays: dict[str, list[int]] = field(default_factory=lambda: {
+        "SPY": [0, 1, 2, 3, 4], "QQQ": [0, 1, 2, 3, 4], "IWM": [0, 1, 2, 3, 4]})
+    crypto_half_spread_pct: float = 0.02  # crypto mode: half the bid/ask spread as % of price
+    crypto_fee_pct: float = 0.25      # crypto mode: Alpaca's taker fee, % of each fill's value
 
 
 @dataclass
 class DataConfig:
-    source: str = "synthetic"         # synthetic | csv | polygon
+    source: str = "synthetic"         # synthetic | csv | polygon | alpaca
     csv_dir: str = "data/bars"
     option_bars_dir: str = "data/option_bars"
     live_data: str = "alpaca"         # paper/live price source: alpaca | polygon
@@ -104,6 +111,7 @@ class DashboardConfig:
 @dataclass
 class Config:
     mode: str = "paper"
+    market: str = "options"           # options (US stock options) | crypto (coins, 24/7, long only)
     live_trading_enabled: bool = False
     workers: list[WorkerConfig] = field(default_factory=list)
     risk: RiskConfig = field(default_factory=RiskConfig)
@@ -151,6 +159,17 @@ def _build(cls, raw: dict[str, Any] | None):
 def validate(cfg: Config) -> None:
     if cfg.mode not in VALID_MODES:
         raise ValueError(f"mode must be one of {sorted(VALID_MODES)}")
+    if cfg.market not in {"options", "crypto"}:
+        raise ValueError("market must be options|crypto")
+    if cfg.data.source not in {"synthetic", "csv", "polygon", "alpaca"}:
+        raise ValueError("data.source must be synthetic|csv|polygon|alpaca")
+    for w in cfg.workers:
+        crypto_sym = "/" in w.symbol
+        if crypto_sym != (cfg.market == "crypto"):
+            raise ValueError(f"{w.name}: {w.symbol} doesn't fit market: {cfg.market} "
+                             f"(crypto symbols look like BTC/USD; option underlyings like SPY)")
+    if cfg.market == "crypto" and cfg.data.source == "polygon":
+        raise ValueError("market: crypto needs data.source: alpaca (or csv / synthetic)")
     names = [w.name for w in cfg.workers]
     if len(names) != len(set(names)):
         raise ValueError("worker names must be unique")
@@ -187,6 +206,8 @@ def load(path: str | Path, mode: str | None = None) -> Config:
     if mode:
         raw["mode"] = mode
     cfg = _build(Config, raw)
+    from . import calendar as cal
+    cal.set_market(cfg.market)
     if cfg.mode in {"backtest", "replay"}:
         cfg.broker.name = "sim"
     validate(cfg)

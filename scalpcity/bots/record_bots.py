@@ -6,7 +6,9 @@ from datetime import date
 from ..core.events import (DailySummary, Fill, KillSwitch, Leaderboard, OptionQuote, OrderRejected, OrderSide,
                            PnLUpdate, PositionOpened, Purpose, SessionEvent, SessionKind, SetupUpdate, SignalSkipped,
                            ContractRejected, Thought, TradeClosed, WorkerStats, WorkerStatus)
+from ..core.costs import QTY_EPS, fmt_qty
 from .base import Bot
+from .signal_filter_bot import LONG_ONLY
 
 TRIGGER_LABEL = {"vwap_cross": "VWAP", "ema50_cross": "EMA50", "orb": "opening range"}
 
@@ -27,8 +29,8 @@ class LedgerBot(Bot):
         self.on(OptionQuote, self.on_quote)
         self.on(SessionEvent, self.on_session)
 
-    def holdings(self) -> dict[str, int]:
-        out: dict[str, int] = {}
+    def holdings(self) -> dict[str, float]:
+        out: dict[str, float] = {}
         for p in self.pos.values():
             out[p["contract"].occ] = out.get(p["contract"].occ, 0) + p["qty"]
         return out
@@ -60,12 +62,12 @@ class LedgerBot(Bot):
             return
         entry_fees = p["fees"] * f.qty / p["qty"]
         p["fees"] -= entry_fees
-        part = (f.price - p["avg"]) * f.qty * 100 - f.fees - entry_fees
+        part = (f.price - p["avg"]) * f.qty * it.contract.multiplier - f.fees - entry_fees
         p["pnl"] += part
         p["exit_notional"] += f.price * f.qty
         p["qty"] -= f.qty
         self.realized[it.worker] = self.realized.get(it.worker, 0.0) + part
-        if p["qty"] <= 0:
+        if p["qty"] <= QTY_EPS:
             del self.pos[it.worker]
             self.unrealized[it.worker] = 0.0
             exit_px = p["exit_notional"] / p["orig"]
@@ -78,7 +80,7 @@ class LedgerBot(Bot):
     def on_quote(self, q: OptionQuote) -> None:
         for worker, p in self.pos.items():
             if p["contract"] == q.contract:
-                u = (q.mid - p["avg"]) * p["qty"] * 100
+                u = (q.mid - p["avg"]) * p["qty"] * q.contract.multiplier
                 if abs(u - self.unrealized.get(worker, 0.0)) >= 0.5:
                     self.unrealized[worker] = u
                     self._pnl(worker, q.ts)
@@ -128,7 +130,7 @@ class JournalBot(Bot):
                     self.say(e.ts, w, "setup faded, standing down")
 
     def on_skipped(self, e: SignalSkipped) -> None:
-        if e.reason in {"already in a trade", "clocked out for the day", "order already working"} \
+        if e.reason in {"already in a trade", "clocked out for the day", "order already working", LONG_ONLY} \
                 or e.reason.startswith("outside trading window"):
             return
         s = e.signal
@@ -137,9 +139,13 @@ class JournalBot(Bot):
     def on_opened(self, e: PositionOpened) -> None:
         self.busy.add(e.worker)
         s = e.signal
-        under = f" ({e.contract.underlying} {s.close:.2f})" if s else ""
         why = f" · {TRIGGER_LABEL[s.trigger]} cross" if s and s.trigger != "orb" else " · range breakout" if s else ""
-        self.say(e.ts, e.worker, f"FIRE {e.contract.right.arrow} {e.contract.right.value} ×{e.qty} @ {e.entry_price:.2f}{under}{why}", "fire")
+        if e.contract.kind == "crypto":
+            text = f"FIRE ▲ BUY {fmt_qty(e.qty)} {e.contract.underlying} @ {e.entry_price:,.2f}{why}"
+        else:
+            under = f" ({e.contract.underlying} {s.close:.2f})" if s else ""
+            text = f"FIRE {e.contract.right.arrow} {e.contract.right.value} ×{e.qty:g} @ {e.entry_price:.2f}{under}{why}"
+        self.say(e.ts, e.worker, text, "fire")
         for key in list(self.armed):
             if key[0] == e.contract.underlying:
                 self.armed[key] = False

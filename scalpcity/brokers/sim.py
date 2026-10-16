@@ -1,8 +1,9 @@
 """Simulated broker: fills marketable orders immediately at the modeled bid/ask.
 
 Buys pay the ask, sells receive the bid (you always cross the spread), plus
-per-contract fees. Non-marketable limit orders are cancelled (IOC behaviour).
-Tracks cash and the pattern-day-trader count like a real margin account.
+fees (per contract for options, a % of value for crypto). Non-marketable limit
+orders are cancelled (IOC behaviour). Tracks cash and the pattern-day-trader
+count like a real margin account.
 """
 from __future__ import annotations
 
@@ -12,20 +13,21 @@ from datetime import date
 from typing import Callable, Optional
 
 from ..core import calendar as cal
-from ..core.events import OptionContract, OrderSide
+from ..core.costs import QTY_EPS, fees
+from ..core.events import Instrument, OrderSide
 from .base import Account, Broker, OrderStatus
 
 
 class SimBroker(Broker):
     synchronous_fills = True
 
-    def __init__(self, starting_cash: float, fee_per_contract: float, quote_fn: Callable, today_fn: Callable[[], date]) -> None:
+    def __init__(self, starting_cash: float, sim_cfg, quote_fn: Callable, today_fn: Callable[[], date]) -> None:
         self.cash = starting_cash
-        self.fee = fee_per_contract
+        self.sim = sim_cfg
         self.quote_fn = quote_fn
         self.today_fn = today_fn
-        self.pos: dict[str, int] = {}
-        self.contracts: dict[str, OptionContract] = {}
+        self.pos: dict[str, float] = {}
+        self.contracts: dict[str, Instrument] = {}
         self.opened_on: dict[str, date] = {}
         self.day_trades: deque[date] = deque()
         self.orders: dict[str, OrderStatus] = {}
@@ -34,9 +36,10 @@ class SimBroker(Broker):
     async def account(self) -> Account:
         equity = self.cash
         for occ, qty in self.pos.items():
-            q = self.quote_fn(self.contracts[occ])
+            c = self.contracts[occ]
+            q = self.quote_fn(c)
             if q:
-                equity += q.mid * qty * 100
+                equity += q.mid * qty * c.multiplier
         today = self.today_fn()
         window = set()
         d = today
@@ -46,7 +49,7 @@ class SimBroker(Broker):
         count = sum(1 for x in self.day_trades if x in window)
         return Account(equity, self.cash, self.cash, count)
 
-    async def submit(self, contract: OptionContract, side: OrderSide, qty: int, limit: Optional[float]) -> str:
+    async def submit(self, contract: Instrument, side: OrderSide, qty: float, limit: Optional[float]) -> str:
         oid = f"sim-{next(self._ids)}"
         q = self.quote_fn(contract)
         if q is None:
@@ -60,23 +63,23 @@ class SimBroker(Broker):
         held = self.pos.get(contract.occ, 0)
         if side is OrderSide.SELL:
             qty = min(qty, held)
-            if qty <= 0:
+            if qty <= QTY_EPS:
                 self.orders[oid] = OrderStatus("rejected", 0, 0.0)
                 return oid
-        cost = price * qty * 100
-        fees = self.fee * qty
+        cost = price * qty * contract.multiplier
+        fee = fees(contract, qty, price, self.sim)
         if side is OrderSide.BUY:
-            if cost + fees > self.cash:
+            if cost + fee > self.cash:
                 self.orders[oid] = OrderStatus("rejected", 0, 0.0)
                 return oid
-            self.cash -= cost + fees
+            self.cash -= cost + fee
             self.pos[contract.occ] = held + qty
             self.contracts[contract.occ] = contract
             self.opened_on.setdefault(contract.occ, self.today_fn())
         else:
-            self.cash += cost - fees
+            self.cash += cost - fee
             self.pos[contract.occ] = held - qty
-            if self.pos[contract.occ] == 0:
+            if self.pos[contract.occ] <= QTY_EPS:
                 del self.pos[contract.occ]
                 if self.opened_on.pop(contract.occ, None) == self.today_fn():
                     self.day_trades.append(self.today_fn())
@@ -91,5 +94,5 @@ class SimBroker(Broker):
         if st and not st.done:
             st.status = "canceled"
 
-    async def positions(self) -> dict[str, int]:
+    async def positions(self) -> dict[str, float]:
         return dict(self.pos)

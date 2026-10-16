@@ -1,0 +1,90 @@
+# Scalp City configuration.
+# Secrets are NOT stored here — set them as environment variables (see README):
+#   POLYGON_API_KEY, ALPACA_API_KEY_ID, ALPACA_API_SECRET_KEY, SCALPCITY_ALERT_WEBHOOK (optional)
+
+mode: paper                 # backtest | replay | paper | live   (CLI command overrides this)
+live_trading_enabled: false # must be true (plus an env var) before real money can trade
+
+entry_cutoff: "15:30"       # no new trades after this (ET)
+flatten_time: "15:55"       # close everything (half days shift automatically)
+db_path: data/scalpcity.db
+
+data:
+  source: polygon           # polygon (paper/live, or real-data backtests) | csv | synthetic (testing only)
+  polygon_feed: realtime    # realtime | delayed (delayed = 15 min late; fine for testing only)
+  csv_dir: data/bars
+  quote_poll_seconds: 2
+
+broker:
+  name: alpaca              # backtest/replay always use the built-in simulator
+  order_timeout_seconds: 8
+  exit_retries: 3           # walk the exit price down this many times, then send a market order
+
+risk:                       # account-wide limits (apply to all workers together)
+  max_daily_loss: 1200      # hit this -> kill switch: flatten everything, stop for the day
+  max_open_positions: 3
+  max_premium_exposure: 6000
+  max_spread_pct: 12
+  min_premium: 0.30
+  max_premium: 15.0
+  pdt_guard: true
+
+sim:                        # simulator used by backtest / replay
+  starting_cash: 30000
+  iv: {SPY: 0.15, QQQ: 0.18, IWM: 0.22}
+  half_spread_pct: 0.5
+  fee_per_contract: 0.03
+  use_historical_option_bars: false   # true = price options from real Polygon option bars (needs options plan)
+
+dashboard:
+  enabled: true
+  host: 127.0.0.1
+  port: 8765
+
+# The five "workers" (towers) from the video. Each one is a ticker + the triggers it trades
+# + its own sizing, exits and daily goal. Sizes below are deliberately SMALL; the video's
+# QQQ OG was putting $6k-13k into each trade (18-37 contracts @ ~$3.50).
+workers:
+  - name: QQQ OG
+    symbol: QQQ
+    triggers: [vwap_cross, ema50_cross, orb]
+    dte: 0                  # video narration says "one day to expiration"; prices on screen match 0DTE
+    strike: atm
+    sizing: {mode: budget, budget: 1500, max_contracts: 20}
+    exits: {take_profit_pct: 12, stop_loss_pct: 10, trail_activate_pct: 4, trail_lock_ratio: 0.6, max_hold_minutes: 20}
+    daily_goal: 600
+    max_daily_loss: 400
+
+  - name: QQQ TREND
+    symbol: QQQ
+    triggers: [ema50_cross, orb]
+    trend_filter: true      # calls only above EMA50 & VWAP, puts only below
+    strike: atm
+    sizing: {mode: fixed, contracts: 2}
+    exits: {take_profit_pct: 20, stop_loss_pct: 12, trail_activate_pct: 6, trail_lock_ratio: 0.5, max_hold_minutes: 30}
+    daily_goal: 300
+    max_daily_loss: 250
+
+  - name: QQQ
+    symbol: QQQ
+    triggers: [vwap_cross]
+    strike: atm
+    sizing: {mode: fixed, contracts: 2}
+    daily_goal: 250
+    max_daily_loss: 200
+
+  - name: SPY
+    symbol: SPY
+    triggers: [vwap_cross, ema50_cross, orb]
+    strike: atm
+    sizing: {mode: budget, budget: 1500, max_contracts: 20}
+    daily_goal: 600
+    max_daily_loss: 400
+
+  - name: IWM
+    symbol: IWM
+    triggers: [vwap_cross, ema50_cross, orb]
+    strike: atm
+    sizing: {mode: budget, budget: 1000, max_contracts: 20}
+    daily_goal: 400
+    max_daily_loss: 300

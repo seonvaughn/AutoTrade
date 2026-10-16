@@ -1,0 +1,139 @@
+"""Orchestrator — builds, wires, starts and stops every bot.
+
+The registration order below is the delivery order on the bus, and it matters:
+indicators (ATR first) before signals, signals before the filter, ledger before
+exit manager, and so on.
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+from datetime import date, datetime, timedelta
+
+from .bots.base import Context
+from .bots.candle_bot import CandleBot
+from .bots.clock_bot import ClockBot
+from .bots.decision_bots import ContractSelectorBot, DailyGoalBot, PositionSizerBot, RiskManagerBot
+from .bots.execution_bots import ExecutionBot, ExitManagerBot, ReconciliationBot
+from .bots.indicator_bots import ATRBot, EMABot, OpeningRangeBot, VWAPBot
+from .bots.ops_bots import AlertBot, HealthBot
+from .bots.options_chain_bot import OptionsChainBot
+from .bots.price_feed_bot import PriceFeedBot
+from .bots.record_bots import AnalystBot, JournalBot, LedgerBot
+from .bots.signal_bots import EMACrossBot, ORBBot, VWAPCrossBot
+from .bots.signal_filter_bot import SignalFilterBot
+from .core import calendar as cal
+from .core.bus import EventBus
+from .core.config import Config
+from .core.events import Alert, KillSwitchRequest
+from .core.storage import Storage
+
+log = logging.getLogger("scalpcity.orchestrator")
+
+BOT_ORDER = [
+    ClockBot, HealthBot, CandleBot, OptionsChainBot,
+    ATRBot, VWAPBot, EMABot, OpeningRangeBot,
+    VWAPCrossBot, EMACrossBot, ORBBot,
+    SignalFilterBot, ContractSelectorBot, PositionSizerBot, RiskManagerBot, ExecutionBot,
+    LedgerBot, ExitManagerBot, DailyGoalBot, ReconciliationBot,
+    JournalBot, AnalystBot, AlertBot,
+]
+
+
+class Orchestrator:
+    name = "orchestrator"
+    skill = "Build, wire, start and stop every bot; graceful shutdown flattens positions"
+
+    def __init__(self, cfg: Config, run_id: str | None = None, db_path: str | None = None,
+                 dashboard: bool | None = None) -> None:
+        self.cfg = cfg
+        self.live = cfg.mode in {"paper", "live"}
+        run_id = run_id or (cfg.mode if self.live else f"{cfg.mode}-{datetime.now():%Y%m%d-%H%M%S}")
+        self.bus = EventBus()
+        self.storage = Storage(db_path or cfg.db_path, run_id, cfg.mode)
+        self.ctx = Context(cfg, self.bus, self.storage, broker=None, live=self.live)  # type: ignore[arg-type]
+        self.ctx.bots[self.name] = self
+        self.bots = [cls(self.ctx) for cls in BOT_ORDER]
+        self.ctx.broker = self._make_broker()
+        want_dash = cfg.dashboard.enabled if dashboard is None else dashboard
+        self.dashboard = None
+        if want_dash:
+            from .bots.dashboard_bot import DashboardBot
+            self.dashboard = DashboardBot(self.ctx)
+            self.bots.append(self.dashboard)
+        self.feed = PriceFeedBot(self.ctx)  # last: it only produces events
+        self.bots.append(self.feed)
+
+    def _make_broker(self):
+        if self.cfg.broker.name == "alpaca":
+            from .brokers.alpaca import AlpacaBroker
+            return AlpacaBroker("live" if self.cfg.mode == "live" else "paper")
+        from .brokers.sim import SimBroker
+        chain = self.ctx.bots["options_chain"]
+        clock = self.ctx.bots["clock"]
+        return SimBroker(self.cfg.sim.starting_cash, self.cfg.sim.fee_per_contract, chain.quote_now,
+                         lambda: clock.day or date.today())
+
+    def roster(self) -> list[tuple[str, str]]:
+        return [(self.name, self.skill)] + [(b.name, b.skill) for b in self.bots]
+
+    async def start(self) -> None:
+        for b in self.bots:
+            await b.start()
+
+    async def stop(self) -> None:
+        for b in reversed(self.bots):
+            await b.stop()
+        await self.ctx.broker.close()
+
+    # ---------------------------------------------------------------- replay / backtest
+    async def replay(self, days: list[date], pace: float = 0.0) -> dict:
+        await self.start()
+        try:
+            await self.feed.replay(days, pace)
+        finally:
+            await self.stop()
+        return self.ctx.bots["analyst"].report()
+
+    # ---------------------------------------------------------------- paper / live
+    async def run_live(self) -> None:
+        await self._preflight()
+        await self.start()
+        stop = asyncio.Event()
+        try:
+            import signal
+            loop = asyncio.get_running_loop()
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                loop.add_signal_handler(sig, stop.set)
+        except (NotImplementedError, RuntimeError):
+            pass
+        try:
+            await stop.wait()
+        finally:
+            await self._flatten_and_stop()
+
+    async def _preflight(self) -> None:
+        acct = await self.ctx.broker.account()
+        log.warning("%s account: equity $%.2f, options buying power $%.2f, day trades %d",
+                    self.cfg.mode.upper(), acct.equity, acct.options_buying_power, acct.daytrade_count)
+        if hasattr(self.ctx.broker, "calendar"):
+            today = cal.now_et().date()
+            broker_days = set(await self.ctx.broker.calendar(today, today + timedelta(days=45)))
+            ours = {d.isoformat() for d in cal.trading_days(today, today + timedelta(days=45))}
+            if broker_days != ours:
+                log.warning("market calendar differs from broker: ours-only %s, broker-only %s",
+                            sorted(ours - broker_days), sorted(broker_days - ours))
+
+    async def _flatten_and_stop(self) -> None:
+        ledger = self.ctx.bots["ledger"]
+        if ledger.pos:
+            log.warning("shutting down with open positions — flattening first")
+            await self.bus.emit(KillSwitchRequest(cal.now_et(), "shutdown"))
+            for _ in range(60):
+                if not ledger.pos:
+                    break
+                await asyncio.sleep(0.5)
+            if ledger.pos:
+                await self.bus.emit(Alert(cal.now_et(), "critical",
+                                          f"shutdown: positions still open at broker: {ledger.holdings()}"))
+        await self.stop()

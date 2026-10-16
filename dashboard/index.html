@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scalp City</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/static/style.css">
+  <script type="importmap">{"imports": {"three": "/static/vendor/three.module.min.js"}}</script>
+</head>
+<body>
+  <canvas id="city" aria-label="3D city of trading bots"></canvas>
+  <div id="labels"></div>
+  <div id="floaters"></div>
+
+  <header id="top">
+    <div class="brand">Scalp City</div>
+    <span id="mode" class="badge">—</span>
+    <span id="clock" class="mono">--:--:-- ET</span>
+    <span id="market" class="market">● market closed</span>
+    <span id="health" class="health ok">● systems ok</span>
+    <div class="spacer"></div>
+    <div class="vault-top">VAULT <b id="vault-amt">$0</b></div>
+    <button id="roster-btn" class="ghost" type="button">Bots</button>
+    <button id="kill" type="button">Kill switch</button>
+  </header>
+
+  <aside id="left">
+    <section class="panel">
+      <h2>🏆 Leaderboard</h2>
+      <ol id="leaderboard"></ol>
+    </section>
+    <section class="panel">
+      <h2>Worker heatmap</h2>
+      <div id="heatmap"></div>
+    </section>
+    <section class="panel">
+      <h2>Alerts</h2>
+      <ul id="alerts" class="mono"></ul>
+    </section>
+  </aside>
+
+  <aside id="right">
+    <section class="panel" id="tower">
+      <div class="tower-head">
+        <h2 id="tower-name">—</h2>
+        <span id="tower-status" class="pill">watching</span>
+      </div>
+      <div class="sub">Signal scanner</div>
+      <div id="scanner"></div>
+      <div class="sub" id="chart-title">1-min chart</div>
+      <canvas id="chart" width="600" height="230"></canvas>
+      <div class="legend"><span class="lg vwap">VWAP</span><span class="lg ema">EMA50</span><span class="lg entry">entry</span></div>
+      <div class="sub">Earned today</div>
+      <div id="earned"></div>
+      <div class="sub">Thoughts</div>
+      <ul id="thoughts" class="mono"></ul>
+    </section>
+  </aside>
+
+  <footer id="bottom">
+    <div id="calendar"></div>
+    <div id="ticker"><div id="ticker-track" class="mono"></div></div>
+  </footer>
+
+  <div id="summary" class="modal" hidden>
+    <div class="modal-card">
+      <div id="summary-day" class="sub center"></div>
+      <div id="summary-total" class="big center"></div>
+      <div id="summary-meta" class="center dim"></div>
+      <div id="summary-bars"></div>
+      <div id="summary-top" class="center top-worker"></div>
+      <div class="center"><button id="summary-close" type="button">Close</button></div>
+    </div>
+  </div>
+
+  <div id="roster" class="modal" hidden>
+    <div class="modal-card wide">
+      <h2>The crew — one skill per bot</h2>
+      <ol id="roster-list"></ol>
+      <div class="center"><button id="roster-close" type="button">Close</button></div>
+    </div>
+  </div>
+
+  <div id="offline" hidden>Disconnected from the bots — reconnecting…</div>
+  <script type="module" src="/static/app.js"></script>
+</body>
+</html>

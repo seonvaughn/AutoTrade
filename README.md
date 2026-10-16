@@ -81,7 +81,7 @@ that list.
 
 ## 3. Install
 
-Requires Python 3.11+.
+Requires Python 3.9+ (tested on 3.9 through 3.13; GitHub Actions runs the tests on every push).
 
 ```bash
 cd scalp-city
@@ -143,7 +143,11 @@ Backtests write a JSON report to `reports/`. Every fill, trade and thought goes 
 4. Go live with the **smallest size** (1–2 contracts per worker) and low daily limits. Scale up only
    after weeks of results that match paper.
 
-## 7. Known limits (be aware)
+## 7. Background
+
+`docs/video-analysis.md` has the full breakdown of the original video: transcript, every on-screen detail, and how each part maps to a bot.
+
+## 8. Known limits (be aware)
 
 - **Backtest option prices** are modeled with Black-Scholes and a fixed IV per symbol, unless you
   turn on real option bars. Real 0DTE IV changes through the day, so modeled P&L is approximate.

@@ -40,7 +40,7 @@ Only the price source and the broker plug-in change.
 | 2 | clock | Market session: new day, open, entry cutoff (15:30), flatten (15:55), close; knows holidays and half days |
 | 3 | health | Detects stale data and failing bots; pauses new entries until healthy |
 | 4 | candles | Builds 1-minute candles from the tick stream |
-| 5 | options_chain | Option chain and live quotes for held contracts (Polygon live; Black-Scholes or real option bars in sim) |
+| 5 | options_chain | Option chain and live quotes for held contracts (Alpaca or Polygon live; Black-Scholes or real option bars in sim) |
 | 6 | atr | ATR(14): the yardstick for "charge %" and filters |
 | 7 | vwap | Session VWAP |
 | 8 | ema50 | 50-period EMA of 1-minute closes |
@@ -61,7 +61,7 @@ Only the price source and the broker plug-in change.
 | 23 | analyst | Leaderboard, win rate, expectancy, drawdown, end-of-day summary, backtest report |
 | 24 | alerts | Logs alerts and optionally sends them to a Discord/Slack webhook |
 | 25 | dashboard | The Scalp City 3D view (read-only, plus a kill switch button) |
-| 26 | price_feed | Brings prices in: replayed bars or the live Polygon stream |
+| 26 | price_feed | Brings prices in: replayed bars or the live Alpaca (or Polygon) stream |
 
 The five **workers** (towers) from the video are QQQ OG, QQQ TREND, QQQ, SPY and IWM. Each is just a
 block in `config.yaml`: ticker, triggers, sizing, exits and daily goal. Add or remove towers by editing
@@ -72,11 +72,17 @@ that list.
 1. **Alpaca** (broker): <https://alpaca.markets>. Open an account, then use the **paper trading**
    keys first. Options must be enabled on the account (level 2 or higher to buy calls/puts). Options
    trades are commission-free; small regulatory fees still apply.
-2. **Polygon.io** (market data): <https://polygon.io>.
-   - Paper/live trading needs **real-time stock data** (for the 1-minute candles) and an **options
-     plan that includes quotes** (for live option prices and the chain).
+   - By default paper/live also take their **prices from Alpaca** (`data.live_data: alpaca`), using
+     the same keys. The free feeds work: `iex` stock trades (real-time, but only the IEX exchange, a
+     small share of all volume) and `indicative` option quotes (derived from the exchange feed, not
+     the exchange quotes themselves). Alpaca's paid market data plan unlocks `sip` and `opra`, which
+     are the full feeds. Set them under `data:` in `config.yaml`.
+   - The free plan allows **one data stream per account**, so run one copy of the bots at a time.
+2. **Polygon.io** (market data, now also branded Massive): <https://polygon.io>.
    - Backtests on real data need **minute history** for stocks. Turning on
      `sim.use_historical_option_bars` also needs options minute history.
+   - Optional for paper/live: set `data.live_data: polygon` instead of Alpaca. That needs
+     **real-time stock data with WebSocket access** and an **options plan that includes snapshots**.
 3. Optional: a Discord or Slack **incoming webhook URL**, so critical alerts reach your phone.
 
 ## 3. Install
@@ -105,7 +111,7 @@ python -m scalpcity backtest --start 2026-06-01 --end 2026-09-30 --source polygo
 python -m scalpcity replay --day 2026-10-02 --source polygon --pace 1
 #   then open http://127.0.0.1:8765
 
-# Paper trading (Alpaca paper + Polygon live), during market hours
+# Paper trading (Alpaca paper broker + Alpaca live data), during market hours
 python -m scalpcity paper
 #   open http://127.0.0.1:8765. Ctrl-C closes open positions, then stops.
 ```
@@ -158,3 +164,8 @@ Backtests write a JSON report to `reports/`. Every fill, trade and thought goes 
 - **The video's exact exit rules and sizing were not revealed.** The defaults here (lock profit
   after +4%, target +12%, stop −10%) are inferred from the trade sizes shown on screen. They are a
   starting point, not his settings.
+- **Free Alpaca data is thinner than the full feed.** On `iex`, candles and VWAP come from IEX trades
+  only. Prices track the market closely, but volume is a fraction of the total, and a quiet symbol
+  (IWM is the likeliest) can go 30 s without a trade, which pauses new entries until one arrives.
+  Raise `stale_data_seconds` if that happens often. `indicative` option quotes can be wider than the
+  real market, so the spread filter may skip more contracts than it would with `opra`.

@@ -10,8 +10,11 @@ flatten_time: "15:55"       # close everything (half days shift automatically)
 db_path: data/scalpcity.db
 
 data:
-  source: polygon           # polygon (paper/live, or real-data backtests) | csv | synthetic (testing only)
-  polygon_feed: realtime    # realtime | delayed (delayed = 15 min late; fine for testing only)
+  source: polygon           # backtest/replay bars: polygon (real data) | csv | synthetic (testing only)
+  live_data: alpaca         # paper/live prices: alpaca (uses your Alpaca keys) | polygon (needs real-time plans)
+  alpaca_stock_feed: iex    # iex = free, real-time, IEX exchange only | sip = paid, every exchange
+  alpaca_options_feed: indicative  # indicative = free, derived quotes | opra = paid, real exchange quotes
+  polygon_feed: realtime    # only for live_data: polygon. realtime | delayed (15 min late; testing only)
   csv_dir: data/bars
   quote_poll_seconds: 2
 

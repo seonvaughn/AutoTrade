@@ -80,7 +80,10 @@ class DataConfig:
     source: str = "synthetic"         # synthetic | csv | polygon
     csv_dir: str = "data/bars"
     option_bars_dir: str = "data/option_bars"
+    live_data: str = "alpaca"         # paper/live price source: alpaca | polygon
     polygon_feed: str = "realtime"    # realtime | delayed
+    alpaca_stock_feed: str = "iex"    # iex (free) | sip (paid)
+    alpaca_options_feed: str = "indicative"  # indicative (free) | opra (paid)
     quote_poll_seconds: float = 2.0
 
 
@@ -171,8 +174,12 @@ def validate(cfg: Config) -> None:
     if cfg.mode in {"paper", "live"}:
         if cfg.broker.name != "alpaca":
             raise ValueError("paper/live modes need broker.name: alpaca")
-        if cfg.data.source != "polygon":
-            raise ValueError("paper/live modes need data.source: polygon")
+        if cfg.data.live_data not in {"alpaca", "polygon"}:
+            raise ValueError("data.live_data must be alpaca|polygon")
+        if cfg.data.alpaca_stock_feed not in {"iex", "sip"}:
+            raise ValueError("data.alpaca_stock_feed must be iex|sip")
+        if cfg.data.alpaca_options_feed not in {"indicative", "opra"}:
+            raise ValueError("data.alpaca_options_feed must be indicative|opra")
 
 
 def load(path: str | Path, mode: str | None = None) -> Config:

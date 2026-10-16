@@ -87,3 +87,17 @@ def test_replay_path_hits_every_extreme():
     assert p.index(min(p)) < p.index(max(p))  # up bar: low before high
     flat = Candle("QQQ", c.start, 100, 100, 100, 100, 1)
     assert PriceFeedBot.path(flat, 12) == [100] * 12
+
+
+def test_config_live_data_choices():
+    cfg = Config(mode="paper", workers=[WorkerConfig("Q", "QQQ")])
+    cfg.broker.name = "alpaca"
+    validate(cfg)                                    # default: Alpaca data, free feeds
+    assert (cfg.data.live_data, cfg.data.alpaca_stock_feed, cfg.data.alpaca_options_feed) == ("alpaca", "iex",
+                                                                                             "indicative")
+    cfg.data.alpaca_stock_feed = "nasdaq"
+    with pytest.raises(ValueError, match="alpaca_stock_feed"):
+        validate(cfg)
+    cfg.data.alpaca_stock_feed, cfg.data.live_data = "iex", "yahoo"
+    with pytest.raises(ValueError, match="live_data"):
+        validate(cfg)

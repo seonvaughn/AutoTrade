@@ -2,7 +2,7 @@
 
 Replay: walks recorded/synthetic 1-minute bars, emitting open -> high/low -> close
 ticks inside every minute plus heartbeats, so the rest of the bots see exactly
-what they would see live. Live: Polygon per-second aggregates.
+what they would see live. Live: Alpaca real-time trades or Polygon per-second aggregates.
 """
 from __future__ import annotations
 
@@ -89,10 +89,16 @@ class PriceFeedBot(Bot):
     async def start(self) -> None:
         if not self.ctx.live:
             return
-        from ..data.polygon import PolygonClient, PolygonStream
+        from ..data.live import live_client
 
-        await self._backfill(PolygonClient())
-        stream = PolygonStream(self.cfg.symbols, self._on_agg, self.cfg.data.polygon_feed, self._on_status)
+        await self._backfill(live_client(self.cfg))
+        d = self.cfg.data
+        if d.live_data == "alpaca":
+            from ..data.alpaca_data import AlpacaStream
+            stream = AlpacaStream(self.cfg.symbols, self._on_trade, d.alpaca_stock_feed, self._on_status)
+        else:
+            from ..data.polygon import PolygonStream
+            stream = PolygonStream(self.cfg.symbols, self._on_agg, d.polygon_feed, self._on_status)
         self.spawn(stream.run())
 
     async def _backfill(self, client) -> None:
@@ -116,6 +122,9 @@ class PriceFeedBot(Bot):
         self.emit(Tick(ts, sym, h, 0.0))
         self.emit(Tick(ts, sym, low, 0.0))
         await self.bus.emit(Tick(ts, sym, c, v))
+
+    async def _on_trade(self, sym, ts, price, size) -> None:
+        await self.bus.emit(Tick(ts, sym, price, size))
 
     async def _on_status(self, level: str, text: str) -> None:
         await self.bus.emit(Alert(cal.now_et(), level, text))

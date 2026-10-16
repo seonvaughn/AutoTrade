@@ -2,7 +2,7 @@
 
   python -m scalpcity backtest --start 2026-09-01 --end 2026-10-02
   python -m scalpcity replay   --day 2026-10-02 --pace 1      (watch it in the dashboard)
-  python -m scalpcity paper                                    (Alpaca paper + Polygon live data)
+  python -m scalpcity paper                                    (Alpaca paper broker + live data)
   python -m scalpcity live                                     (real money; see README)
   python -m scalpcity download --start 2026-09-01 --end 2026-10-02
   python -m scalpcity bots                                     (list every bot and its one skill)

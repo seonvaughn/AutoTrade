@@ -5,7 +5,7 @@ quotes for every contract we hold so the exit manager and ledger can react.
 
 Sim (replay/backtest): Black-Scholes on trading-time from the replayed underlying
 (or real Polygon option bars when sim.use_historical_option_bars is on), with a
-modeled bid/ask spread. Live/paper: Polygon option snapshots.
+modeled bid/ask spread. Live/paper: Alpaca or Polygon option snapshots (data.live_data).
 """
 from __future__ import annotations
 
@@ -113,8 +113,8 @@ class OptionsChainBot(Bot):
 
     def _poly(self):
         if self.poly is None:
-            from ..data.polygon import PolygonClient
-            self.poly = PolygonClient()
+            from ..data.live import live_client
+            self.poly = live_client(self.cfg)
         return self.poly
 
     async def start(self) -> None:

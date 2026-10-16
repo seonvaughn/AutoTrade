@@ -15,6 +15,7 @@ class HealthBot(Bot):
     skill = "Detect stale market data and failing bots; pause new entries until healthy"
 
     def setup(self) -> None:
+        self.watching_since = None
         self.last_tick: dict[str, object] = {}
         self.flagged = False
         self.on(Tick, lambda t: self.last_tick.__setitem__(t.symbol, t.ts))
@@ -31,8 +32,9 @@ class HealthBot(Bot):
         if not clock or not clock.is_open() or hb.ts < cal.session_open(hb.ts.date()) + timedelta(minutes=1):
             return
         limit = timedelta(seconds=self.cfg.stale_data_seconds)
-        stale = [s for s in self.cfg.symbols
-                 if s not in self.last_tick or hb.ts - self.last_tick[s] > limit]
+        if self.watching_since is None:
+            self.watching_since = hb.ts  # a symbol we never heard from gets the same grace as one that went quiet
+        stale = [s for s in self.cfg.symbols if hb.ts - self.last_tick.get(s, self.watching_since) > limit]
         if stale and not self.flagged:
             self.flagged = True
             text = f"no market data for {', '.join(stale)} in {self.cfg.stale_data_seconds:g}s — pausing entries"

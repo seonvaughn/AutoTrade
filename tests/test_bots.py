@@ -280,3 +280,28 @@ def test_daily_goal_clock_out_and_kill_switch():
     assert status[-1].clocked_out and status[-1].reason == "daily goal"
     run(o, TradeClosed(t("10:10"), "SPY", c, 1, 1, 2, -300, "stop", t("10:00")))
     assert kills[-1].engaged
+
+
+def test_health_gives_silent_symbols_a_grace_period_after_start():
+    import asyncio as _asyncio
+    from datetime import date as _date, timedelta as _td
+
+    from scalpcity.core import calendar as _cal
+    from scalpcity.core.events import HealthStatus, Heartbeat, SessionKind, Tick
+    from scalpcity.orchestrator import Orchestrator
+    from tests.conftest import make_cfg as _make_cfg
+
+    o = Orchestrator(_make_cfg(), db_path=":memory:", dashboard=False)
+    o.ctx.bots["clock"].done = {SessionKind.OPEN}
+    seen = []
+    o.bus.subscribe(HealthStatus, seen.append, "t")
+    t0 = _cal.at(_date(2026, 10, 15), "11:00")
+
+    async def go():
+        await o.bus.emit(Heartbeat(t0))                       # started mid-session, nothing heard yet
+        await o.bus.emit(Tick(t0 + _td(seconds=5), "QQQ", 1.0))
+        await o.bus.emit(Heartbeat(t0 + _td(seconds=20)))     # SPY silent 20 s: still within grace
+        assert seen == []
+        await o.bus.emit(Heartbeat(t0 + _td(seconds=31)))     # SPY silent past the limit
+    _asyncio.run(go())
+    assert len(seen) == 1 and not seen[0].ok and "SPY" in seen[0].reason and "QQQ" not in seen[0].reason

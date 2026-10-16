@@ -110,7 +110,8 @@ class PolygonStream:
         backoff = 1.0
         while True:
             try:
-                async with websockets.connect(self.url, ping_interval=20) as ws:
+                from .alpaca_data import tls_context
+                async with websockets.connect(self.url, ping_interval=20, ssl=tls_context()) as ws:
                     await ws.send(json.dumps({"action": "auth", "params": api_key()}))
                     await ws.send(json.dumps({"action": "subscribe",
                                               "params": ",".join(f"A.{s}" for s in self.symbols)}))

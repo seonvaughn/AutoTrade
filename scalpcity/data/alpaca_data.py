@@ -34,6 +34,14 @@ WS = "wss://stream.data.alpaca.markets/v2/{feed}"
 CRYPTO_WS = "wss://stream.data.alpaca.markets/v1beta3/crypto/us"
 
 
+def tls_context():
+    """Certificates from certifi: python.org builds on macOS ship without trusted roots for the ssl module."""
+    import ssl
+
+    import certifi
+    return ssl.create_default_context(cafile=certifi.where())
+
+
 def keys() -> tuple[str, str]:
     key, secret = os.environ.get("ALPACA_API_KEY_ID"), os.environ.get("ALPACA_API_SECRET_KEY")
     if not key or not secret:
@@ -185,7 +193,7 @@ class AlpacaStream:
         backoff = 1.0
         while True:
             try:
-                async with websockets.connect(self.url, ping_interval=20) as ws:
+                async with websockets.connect(self.url, ping_interval=20, ssl=tls_context()) as ws:
                     await ws.send(json.dumps({"action": "auth", "key": key, "secret": secret}))
                     await ws.send(json.dumps(self.subscription()))
                     backoff = 1.0

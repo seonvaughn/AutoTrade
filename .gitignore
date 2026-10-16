@@ -2,6 +2,8 @@
 __pycache__/
 *.pyc
 .env
-data/
-reports/
+# runtime output (repo root only — scalpcity/data/ is source code)
+/data/
+/reports/
+/dist/
 .pytest_cache/

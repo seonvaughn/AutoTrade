@@ -144,5 +144,11 @@ To see the city working, use the `run-scalpcity` skill (`.claude/skills/run-scal
   but positions exit on −10%/+12% of option premium, which 0DTE noise hits fast: aligning the
   exits with what the gate measured is the obvious next experiment. 790 entries were blocked by
   the PDT guard once the $30k sim account fell below $25k.
+- **Aligned-exits experiment (same period, `exits.measure: underlying`, 0.7/1.0 ATR, 20 min, no
+  reversal exits):** −$5,444, 201 trades, 38.8% wins, profit factor 0.53. 122 stops (−$11,509) vs
+  79 targets (+$6,065). Matching the exits to the gate's yardstick changed almost nothing: triggers
+  "proven" over the past 5 sessions won ~39% going forward, below the 45% the gate required. The
+  past-5-session edge does not persist, so the gate is selecting noise. Shipped config still uses
+  premium exits.
 - Open: a full options backtest on real data has not finished yet (stopped at the 2-hour cloud
   limit). Run `backtest --start 2026-09-01 --end 2026-10-15 --source alpaca` first, then longer.

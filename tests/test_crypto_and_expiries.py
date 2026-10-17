@@ -31,6 +31,7 @@ def crypto_cfg(**over) -> Config:
     cfg.data.source, cfg.broker.name, cfg.dashboard.enabled = "synthetic", "sim", False
     cfg.risk.max_daily_loss = 100_000
     cfg.risk.max_spread_pct = 0.5
+    cfg.research.enabled = False
     validate(cfg)
     return cfg
 

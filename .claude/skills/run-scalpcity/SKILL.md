@@ -46,6 +46,11 @@ repeats on a phone-sized viewport, saves PNGs, and exits non-zero on any page er
 PNGs and look at them: the canvas must show towers and robots, the interior must show floor
 buttons and content, and the chart must have candles.
 
+With the research gate on (the default), a real-data replay starts by studying the previous 5
+sessions; expect many `🔎 no trade` vetoes in thoughts and few trades. Check a tower's **Research
+room** floor: track records, marked levels and the day's decisions. On synthetic prices almost
+everything is vetoed; that's correct.
+
 Known failure: a TDZ error such as `Cannot access 'px' before initialization` means a local
 variable in `dashboard/app.js` shadows a module-level helper.
 

@@ -199,12 +199,45 @@ class Signal(Event):
     atr: Optional[float]
     ema50: Optional[float] = None
     vwap: Optional[float] = None
+    backfill: bool = False  # fired on history (warm-up): studied by the edge tracker, never traded
 
 
 @dataclass
 class WorkerSignal(Event):
     worker: str
     signal: Signal
+
+
+@dataclass
+class KeyLevel:
+    price: float
+    label: str      # "prior day high", "5-day low", "turning point ×3", ...
+    strength: int   # how many times the market reacted there (1 for prior-day levels)
+
+
+@dataclass
+class KeyLevels(Event):
+    """Price levels marked from past sessions, published once per symbol per day."""
+    symbol: str
+    day: date
+    levels: list[KeyLevel]
+
+
+@dataclass
+class ResearchCleared(Event):
+    """The research gate found enough evidence: the worker may look for a contract."""
+    worker: str
+    signal: Signal
+    evidence: dict
+
+
+@dataclass
+class EntryVetoed(Event):
+    """The research gate refused an entry, with the evidence that failed."""
+    worker: str
+    signal: Signal
+    reason: str
+    evidence: dict
 
 
 @dataclass

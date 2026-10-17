@@ -96,7 +96,10 @@ def main(argv: list[str] | None = None) -> int:
         days = _days(args)
         if cfg.data.source in ("polygon", "alpaca"):
             from .data.bars import download
-            download(cfg.symbols, cal.prev_trading_day(days[0]), days[-1], cfg.data.csv_dir, cfg.data.source)
+            first = days[0]
+            for _ in range(max(1, cfg.research.lookback_days)):  # the sessions the research bots study first
+                first = cal.prev_trading_day(first)
+            download(cfg.symbols, first, days[-1], cfg.data.csv_dir, cfg.data.source)
         if cfg.data.source == "synthetic":
             logging.getLogger("scalpcity").warning("using SYNTHETIC prices — for testing the machinery only, "
                                                    "results say nothing about real profitability")

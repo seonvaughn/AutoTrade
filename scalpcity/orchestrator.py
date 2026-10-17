@@ -20,6 +20,7 @@ from .bots.ops_bots import AlertBot, HealthBot
 from .bots.options_chain_bot import OptionsChainBot
 from .bots.price_feed_bot import PriceFeedBot
 from .bots.record_bots import AnalystBot, JournalBot, LedgerBot
+from .bots.research_bots import EdgeTrackerBot, KeyLevelsBot, ResearchGateBot
 from .bots.signal_bots import EMACrossBot, ORBBot, VWAPCrossBot
 from .bots.signal_filter_bot import SignalFilterBot
 from .core import calendar as cal
@@ -32,9 +33,9 @@ log = logging.getLogger("scalpcity.orchestrator")
 
 BOT_ORDER = [
     ClockBot, HealthBot, CandleBot, OptionsChainBot,
-    ATRBot, VWAPBot, EMABot, OpeningRangeBot,
-    VWAPCrossBot, EMACrossBot, ORBBot,
-    SignalFilterBot, ContractSelectorBot, PositionSizerBot, RiskManagerBot, ExecutionBot,
+    ATRBot, VWAPBot, EMABot, OpeningRangeBot, KeyLevelsBot,
+    VWAPCrossBot, EMACrossBot, ORBBot, EdgeTrackerBot,
+    SignalFilterBot, ResearchGateBot, ContractSelectorBot, PositionSizerBot, RiskManagerBot, ExecutionBot,
     LedgerBot, ExitManagerBot, DailyGoalBot, ReconciliationBot,
     JournalBot, AnalystBot, AlertBot,
 ]

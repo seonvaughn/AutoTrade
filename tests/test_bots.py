@@ -87,11 +87,14 @@ def test_vwap_cross_fires_call_above_and_put_below():
     assert [(s.side, s.trigger) for s in sigs] == [(Side.CALL, "vwap_cross"), (Side.PUT, "vwap_cross")]
 
 
-def test_no_signal_from_backfill_or_across_days():
+def test_backfill_signals_are_studied_never_traded():
+    from scalpcity.core.events import WorkerSignal
     o = system()
     sigs = collect(o, Signal)
+    routed = collect(o, WorkerSignal)
     run(o, _vwap_val("QQQ", "10:00", 99.0, 100.0), _vwap_val("QQQ", "10:01", 101.0, 100.0, backfill=True))
-    assert sigs == []
+    assert len(sigs) == 1 and sigs[0].backfill          # history fires, marked as history
+    assert routed == []                                 # ...and no worker ever trades it
 
 
 def test_orb_breaks_once_per_side():

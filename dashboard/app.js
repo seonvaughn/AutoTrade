@@ -377,6 +377,14 @@ function drawChart(w, s, cv = $("chart"), count = 90) {
     bars.forEach((b, i) => { if (b[k] == null) return; const x = i * step + step / 2; started ? g.lineTo(x, y(b[k])) : g.moveTo(x, y(b[k])); started = true; });
     g.stroke(); g.lineWidth = 1;
   }
+  for (const lv of (s.levels || {})[w.symbol] || []) {
+    if (lv.price < lo || lv.price > hi) continue;
+    const yy = y(lv.price);
+    g.strokeStyle = "rgba(244,241,255,.45)"; g.setLineDash([2, 5]); g.lineWidth = 1;
+    g.beginPath(); g.moveTo(0, yy); g.lineTo(W - 46, yy); g.stroke(); g.setLineDash([]);
+    g.fillStyle = "rgba(244,241,255,.75)"; g.font = "10px sans-serif";
+    g.fillText(lv.label, 4, yy - 3);
+  }
   const last = s.prices[w.symbol];
   if (last) { g.setLineDash([4, 4]); g.strokeStyle = "rgba(62,232,255,.7)"; g.beginPath(); g.moveTo(0, y(last)); g.lineTo(W - 46, y(last)); g.stroke(); g.setLineDash([]); }
 }
@@ -482,6 +490,7 @@ connect();
 // ============================================================ the crew: one little robot per bot
 const CREW_GROUPS = [
   { cat: "Data", color: COLORS.cyan, bots: ["price_feed", "candles", "options_chain", "clock"] },
+  { cat: "Research", color: 0xf4f1ff, bots: ["key_levels", "edge_tracker", "research_gate"] },
   { cat: "Indicators & signals", color: COLORS.gold, bots: ["atr", "vwap", "ema50", "opening_range", "sig_vwap_cross", "sig_ema50_cross", "sig_orb"] },
   { cat: "Decisions", color: COLORS.violet, bots: ["signal_filter", "contract_selector", "position_sizer", "risk_manager"] },
   { cat: "Execution", color: COLORS.CALL, bots: ["execution", "exit_manager", "reconciliation"] },
@@ -648,7 +657,7 @@ addEventListener("keydown", (ev) => {
 });
 
 const TOWER_FLOORS = [
-  ["trading", "5", "Trading floor"], ["charts", "4", "Chart room"], ["thoughts", "3", "Thoughts"],
+  ["research", "6", "Research room"], ["trading", "5", "Trading floor"], ["charts", "4", "Chart room"], ["thoughts", "3", "Thoughts"],
   ["trades", "2", "Trade log"], ["rules", "1", "Lobby · rules"], ["crew", "B", "Crew room"],
 ];
 const VAULT_FLOORS = [["vault", "1", "Vault floor"], ["days", "2", "Day by day"], ["crew", "B", "The whole crew"]];
@@ -711,10 +720,44 @@ function crewCards(names) {
   }).join("")}</div>`;
 }
 
+const TRIG_NAME = { vwap_cross: "VWAP cross", ema50_cross: "EMA50 cross", orb: "15-min range break" };
+
+function researchFloor(w, s) {
+  const r = w.research || { edges: [], vetoes: [], cleared: [] };
+  const cfg = s.research || {};
+  const price = s.prices[w.symbol];
+  const levels = ((s.levels || {})[w.symbol] || []).slice().sort((a, b) => b.price - a.price);
+  const edgeRows = r.edges.map((e) => `<tr><td>${TRIG_NAME[e.trigger] || esc(e.trigger)}</td><td class="r">${e.n}</td>
+    <td class="r">${e.wins} / ${e.losses} / ${e.timeouts}</td><td class="r">${Math.round(e.win_rate * 100)}%</td>
+    <td class="r ${cls(e.avg_r)}">${e.avg_r >= 0 ? "+" : ""}${e.avg_r.toFixed(2)}R</td>
+    <td>${e.proven ? '<b class="pos">proven</b>' : `<span class="neg">not proven</span>${e.n < cfg.min_samples ? ` <small class="dim">(${e.n}/${cfg.min_samples} samples)</small>` : ""}`}</td></tr>`).join("");
+  const levelRows = levels.map((lv) => {
+    const dist = price ? ((lv.price - price) / price) * 100 : null;
+    return `<tr><td class="mono">${px(lv.price)}</td><td>${esc(lv.label)}</td><td class="r">${dist == null ? "—" : `${dist >= 0 ? "+" : ""}${dist.toFixed(2)}%`}</td></tr>`;
+  }).join("");
+  const decisions = [...r.cleared.map((c) => ({ ...c, ok: true })), ...r.vetoes.map((v) => ({ ...v, ok: false }))]
+    .sort((a, b) => (a.t < b.t ? 1 : -1)).slice(0, 25);
+  const decRows = decisions.map((d) => `<tr><td>${d.t}</td><td>${d.side === "CALL" ? "▲" : "▼"} ${TRIG_NAME[d.trigger] || esc(d.trigger)}</td>
+    <td>${d.ok ? `<b class="pos">cleared</b> <span class="dim">${d.edge ? `won ${d.edge.wins}/${d.edge.n}, ${d.edge.avg_r >= 0 ? "+" : ""}${d.edge.avg_r.toFixed(2)}R` : "gate off"}${d.next ? ` · ${d.next.room_atr} ATR to ${esc(d.next.label)}` : ""}</span>`
+      : `<b class="neg">vetoed</b> <span class="dim">${esc(d.reason)}</span>`}</td></tr>`).join("");
+  return `<h2>Research room · evidence before every trade</h2>
+    <p class="dim" style="margin:0 0 12px">${r.gate
+      ? `Every entry needs a trigger proven on ${esc(w.symbol)} over the last ${cfg.lookback_days} sessions (at least ${cfg.min_samples} past signals, ${Math.round(cfg.min_win_rate * 100)}%+ reaching ${cfg.target_atr} ATR before ${cfg.stop_atr} ATR against, average above ${cfg.min_avg_r}R) and ${cfg.min_room_atr}+ ATR of room before the next marked level. No evidence, no trade.`
+      : "The research gate is off for this tower: entries are not checked against past sessions."}</p>
+    <h2>Trigger track record</h2>
+    ${edgeRows ? `<table><thead><tr><th>trigger</th><th class="r">signals</th><th class="r">won / lost / timed out</th><th class="r">win</th><th class="r">avg</th><th>status</th></tr></thead><tbody>${edgeRows}</tbody></table>` : `<div class="empty">Still studying past sessions.</div>`}
+    <h2 style="margin-top:16px">Marked levels</h2>
+    ${levelRows ? `<table><thead><tr><th>price</th><th>why it matters</th><th class="r">from now</th></tr></thead><tbody>${levelRows}</tbody></table>` : `<div class="empty">Levels appear with the first live candle of the session.</div>`}
+    <h2 style="margin-top:16px">Today's decisions</h2>
+    ${decRows ? `<table><tbody>${decRows}</tbody></table>` : `<div class="empty">No signals checked yet today.</div>`}`;
+}
+
 function towerFloor(w, s) {
   const total = workerTotal(w);
   const pos = w.position;
   switch (inside.floor) {
+    case "research":
+      return researchFloor(w, s);
     case "trading": {
       const wr = w.trades ? Math.round((100 * w.wins) / w.trades) : 0;
       const posCard = pos

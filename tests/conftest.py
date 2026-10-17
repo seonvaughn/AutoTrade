@@ -20,6 +20,7 @@ def make_cfg(**over) -> Config:
     cfg.broker.name = "sim"
     cfg.dashboard.enabled = False
     cfg.risk.max_daily_loss = 100_000
+    cfg.research.enabled = False  # mechanics tests; the research gate has its own tests
     validate(cfg)
     return cfg
 

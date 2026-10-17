@@ -17,7 +17,7 @@ live**. Options can lose 100% of what you pay, and 0DTE options can do it in min
 
 ---
 
-## 1. How it works: 26 bots, one skill each
+## 1. How it works: 29 bots, one skill each
 
 Bots never call each other to do things. Each one publishes events on a deterministic event bus, and
 the bot that owns the next step reacts. Backtest, replay, paper and live run **the exact same bots**.
@@ -25,9 +25,10 @@ Only the price source and the broker plug-in change.
 
 ```
  price_feed ─▶ candles ─▶ atr / vwap / ema50 / opening_range ─▶ sig_vwap_cross / sig_ema50_cross / sig_orb
-                                                                         │ Signal
+                    └─▶ key_levels (marks levels from past sessions)        │ Signal ─▶ edge_tracker (scores it)
                                                                          ▼
- signal_filter ─▶ contract_selector ─▶ position_sizer ─▶ risk_manager ─▶ execution ─▶ broker (Alpaca | sim)
+ signal_filter ─▶ research_gate (evidence or veto) ─▶ contract_selector ─▶ position_sizer ─▶ risk_manager
+               ─▶ execution ─▶ broker (Alpaca | sim)
                                                                          │ Fill
                                                                          ▼
  ledger ─▶ exit_manager (profit lock / target / stop / time / reversal / EOD / kill) ─▶ risk_manager ─▶ execution
@@ -64,6 +65,9 @@ Only the price source and the broker plug-in change.
 | 24 | alerts | Logs alerts and optionally sends them to a Discord/Slack webhook |
 | 25 | dashboard | The Scalp City 3D view (read-only, plus a kill switch button) |
 | 26 | price_feed | Brings prices in: replayed bars or the live Alpaca (or Polygon) stream |
+| 27 | key_levels | Studies the past sessions and marks the levels that matter: prior day high/low/close, the multi-day high/low, and prices the market turned at more than once |
+| 28 | edge_tracker | Scores every trigger on every ticker from past signals: did price reach its target before its stop? |
+| 29 | research_gate | Lets an entry through only with evidence: a proven edge for that trigger on that ticker, and room before the next marked level. Otherwise it vetoes, with the reason |
 
 The five **workers** (towers) from the video are QQQ OG, QQQ TREND, QQQ, SPY and IWM; seven
 single-stock towers follow them. Each is just a block in `config.yaml`: ticker, triggers, sizing,
@@ -135,8 +139,8 @@ python -m scalpcity --config config.crypto.yaml backtest --start 2026-09-01 --en
   crew room (the bots working for it). **Esc** or **Exit building** takes you back out.
 - **The Vault** (the dome in the middle): click it to go in. It holds every tower's P&L, past days
   and the whole crew.
-- **The crew:** the little robots around the city are the 26 bots, colored by job (cyan data, gold
-  signals, violet decisions, green execution, pink records). A robot bobs and lights up while it is
+- **The crew:** the little robots around the city are the 29 bots, colored by job (white research,
+  cyan data, gold signals, violet decisions, green execution, pink records). A robot bobs and lights up while it is
   working. Click one for its skill, how many events it has handled and its last job.
 
 **Opening the city on your phone.** The dashboard only listens on this computer by default. To reach
@@ -158,7 +162,32 @@ machinery works, but **its P&L means nothing**.
 Backtests write a JSON report to `reports/`. Every fill, trade and thought goes to SQLite at
 `data/scalpcity.db`.
 
-## 5. Safety rails (all on by default)
+## 5. Research before every trade
+
+The bots don't trade on a hunch. Before the first trade, and again every day, they study the last
+`research.lookback_days` sessions (5 by default):
+
+1. **key_levels** marks the prior day's high, low and close, the 5-day high and low, and prices
+   the market turned at repeatedly (found on 15-minute bars, clustered within 0.1%).
+2. **edge_tracker** replays every signal from that history and scores it: did price move 1.0 ATR
+   the trade's way before 0.7 ATR against it, within 20 minutes? Only outcomes that had finished by
+   the time of a decision count, so there's no peeking ahead.
+3. **research_gate** checks each entry. The trigger must be **proven on that ticker** (at least 6
+   past signals, a 45%+ win rate and a positive average result) and there must be **room**: at
+   least 1 ATR to the next marked level in the trade's direction. If not, the entry is **vetoed**,
+   and the reason goes to the worker's thoughts, e.g. *"no edge: vwap_cross on QQQ won 34/101
+   (34%), avg −0.18R over 5 sessions"*.
+
+Each tower's **Research room** (top floor) shows its triggers' track records, the marked levels
+and every decision of the day. The levels are also drawn on the charts. All of it is set in the
+`research:` block of the config.
+
+**What this can and can't do.** It makes every trade evidence-based and every refusal
+explainable, and it shuts off triggers that have been losing on a ticker. It can't make trading
+risk-free: a trigger that worked over the last 5 sessions can stop working tomorrow. Expect far
+fewer trades, and judge it by backtests over many weeks, not one day.
+
+## 6. Safety rails (all on by default)
 
 - **Paper by default.** Live needs `live_trading_enabled: true` in the config **and**
   `SCALPCITY_LIVE_CONFIRM=I_UNDERSTAND_THIS_TRADES_REAL_MONEY` in the environment.
@@ -174,7 +203,7 @@ Backtests write a JSON report to `reports/`. Every fill, trade and thought goes 
 - **Shutdown**: Ctrl-C flattens before exiting.
 - **Exits are never blocked**: the risk manager always lets a closing order through.
 
-## 6. Go-live checklist
+## 7. Go-live checklist
 
 1. Run backtests on **real Polygon data** over at least 3–6 months, with
    `use_historical_option_bars: true`. Is the profit factor above 1.2 *after* spreads? If not, stop
@@ -185,11 +214,11 @@ Backtests write a JSON report to `reports/`. Every fill, trade and thought goes 
 4. Go live with the **smallest size** (1–2 contracts per worker) and low daily limits. Scale up only
    after weeks of results that match paper.
 
-## 7. Background
+## 8. Background
 
 `docs/video-analysis.md` has the full breakdown of the original video: transcript, every on-screen detail, and how each part maps to a bot.
 
-## 8. Known limits (be aware)
+## 9. Known limits (be aware)
 
 - **Backtest option prices** are modeled with Black-Scholes and a fixed IV per symbol, unless you
   turn on real option bars. Real 0DTE IV changes through the day, so modeled P&L is approximate.

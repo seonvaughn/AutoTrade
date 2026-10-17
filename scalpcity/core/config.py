@@ -50,6 +50,7 @@ class WorkerConfig:
     max_trades_per_day: int = 10
     min_close_beyond_atr: float = 0.05  # candle must close at least this far past the level
     trend_filter: bool = False        # calls only above EMA50 & VWAP, puts only below
+    research_gate: bool = True        # entries need evidence from the research bots (see ResearchConfig)
     enabled: bool = True
 
 
@@ -62,6 +63,24 @@ class RiskConfig:
     min_premium: float = 0.30
     max_premium: float = 15.0
     pdt_guard: bool = True
+
+
+@dataclass
+class ResearchConfig:
+    """No trade on a hunch: past sessions are studied first, and every entry must show evidence."""
+    enabled: bool = True
+    lookback_days: int = 5            # past sessions studied before (and while) trading
+    # Scoring a past signal: it "won" if price moved target_atr ATRs its way before stop_atr ATRs
+    # against it, within horizon_minutes. ATR = the 1-minute ATR(14) at the signal.
+    target_atr: float = 1.0
+    stop_atr: float = 0.7
+    horizon_minutes: int = 20
+    # A trigger is "proven" on a ticker only with enough past signals and a real edge:
+    min_samples: int = 6
+    min_win_rate: float = 0.45
+    min_avg_r: float = 0.05           # average result per signal, in units of the stop distance
+    min_room_atr: float = 1.0         # room needed before the next marked level in the trade's direction
+    level_merge_pct: float = 0.1      # turning points closer than this % are one level
 
 
 @dataclass
@@ -116,6 +135,7 @@ class Config:
     workers: list[WorkerConfig] = field(default_factory=list)
     risk: RiskConfig = field(default_factory=RiskConfig)
     sim: SimConfig = field(default_factory=SimConfig)
+    research: ResearchConfig = field(default_factory=ResearchConfig)
     data: DataConfig = field(default_factory=DataConfig)
     broker: BrokerConfig = field(default_factory=BrokerConfig)
     dashboard: DashboardConfig = field(default_factory=DashboardConfig)
@@ -144,7 +164,7 @@ def _build(cls, raw: dict[str, Any] | None):
     if unknown:
         raise ValueError(f"unknown {cls.__name__} keys: {sorted(unknown)}")
     kwargs = {}
-    nested = {"sizing": Sizing, "exits": ExitRules, "risk": RiskConfig, "sim": SimConfig,
+    nested = {"sizing": Sizing, "exits": ExitRules, "risk": RiskConfig, "sim": SimConfig, "research": ResearchConfig,
               "data": DataConfig, "broker": BrokerConfig, "dashboard": DashboardConfig}
     for k, v in raw.items():
         if k in nested and isinstance(v, dict):
@@ -159,6 +179,9 @@ def _build(cls, raw: dict[str, Any] | None):
 def validate(cfg: Config) -> None:
     if cfg.mode not in VALID_MODES:
         raise ValueError(f"mode must be one of {sorted(VALID_MODES)}")
+    r = cfg.research
+    if r.lookback_days < 1 or r.min_samples < 1 or r.target_atr <= 0 or r.stop_atr <= 0 or r.horizon_minutes < 1:
+        raise ValueError("research: lookback_days, min_samples, target_atr, stop_atr and horizon_minutes must be > 0")
     if cfg.market not in {"options", "crypto"}:
         raise ValueError("market must be options|crypto")
     if cfg.data.source not in {"synthetic", "csv", "polygon", "alpaca"}:

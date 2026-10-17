@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from ..core import calendar as cal
-from ..core.events import (ContractRejected, OrderFailed, OrderRejected, PositionOpened, Purpose, SessionEvent,
+from ..core.events import (ContractRejected, EntryVetoed, OrderFailed, OrderRejected, PositionOpened, Purpose, SessionEvent,
                            SessionKind, Side, Signal, SignalSkipped, TradeClosed, WorkerSignal, WorkerStatus)
 from .base import Bot
 
@@ -25,6 +25,7 @@ class SignalFilterBot(Bot):
         self.on(TradeClosed, self.on_closed)
         self.on(WorkerStatus, self.on_status)
         self.on(ContractRejected, lambda e: self._clear(e.worker))
+        self.on(EntryVetoed, lambda e: self._clear(e.worker))
         self.on(OrderRejected, lambda e: e.intent.purpose is Purpose.ENTRY and self._clear(e.intent.worker))
         self.on(OrderFailed, self.on_failed)
         self.on(SessionEvent, self.on_session)
@@ -63,6 +64,8 @@ class SignalFilterBot(Bot):
             self.state[e.worker]["clocked_out"] = e.clocked_out
 
     def on_signal(self, sig: Signal) -> None:
+        if sig.backfill:
+            return  # history is for research, not for trading
         for w in self.cfg.workers:
             if not w.enabled or w.symbol != sig.symbol or sig.trigger not in w.triggers:
                 continue

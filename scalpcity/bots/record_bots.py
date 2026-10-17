@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from ..core.events import (DailySummary, Fill, KillSwitch, Leaderboard, OptionQuote, OrderRejected, OrderSide,
+from ..core.events import (DailySummary, EntryVetoed, KeyLevels, ResearchCleared, Fill, KillSwitch, Leaderboard, OptionQuote, OrderRejected, OrderSide,
                            PnLUpdate, PositionOpened, Purpose, SessionEvent, SessionKind, SetupUpdate, SignalSkipped,
                            ContractRejected, Thought, TradeClosed, WorkerStats, WorkerStatus)
 from ..core.costs import QTY_EPS, fmt_qty
@@ -106,6 +106,35 @@ class JournalBot(Bot):
         self.on(TradeClosed, self.on_closed)
         self.on(WorkerStatus, self.on_status)
         self.on(KillSwitch, self.on_kill)
+        self.on(KeyLevels, self.on_levels)
+        self.on(EntryVetoed, self.on_vetoed)
+        self.on(ResearchCleared, self.on_cleared)
+
+    def on_levels(self, e: KeyLevels) -> None:
+        if not e.levels:
+            text = "📚 no past sessions to study yet — research gate will hold entries"
+        else:
+            key = ", ".join(f"{lv.label} {lv.price:,.2f}" for lv in e.levels
+                            if lv.label.startswith(("prior day", f"{self.cfg.research.lookback_days}-day")))
+            text = f"📚 studied past sessions: {len(e.levels)} levels marked ({key})"
+        for w in self._symbol_workers(e.symbol):
+            self.say(e.ts, w, text)
+
+    def on_vetoed(self, e: EntryVetoed) -> None:
+        s = e.signal
+        self.say(e.ts, e.worker, f"🔎 no trade {s.side.arrow} {s.side.value} ({TRIGGER_LABEL[s.trigger]}): {e.reason}", "bad")
+
+    def on_cleared(self, e: ResearchCleared) -> None:
+        edge = e.evidence.get("edge")
+        if not edge:
+            return
+        room = e.evidence.get("next_level")
+        where = f"; {room['room_atr']:.1f} ATR to {room['label']}" if room else "; no level in the way"
+        self.say(e.ts, e.worker, f"🔎 evidence ok: {TRIGGER_LABEL[e.signal.trigger]} won {edge['wins']}/{edge['n']} "
+                                 f"({edge['win_rate']:.0%}), {edge['avg_r']:+.2f}R{where}", "good")
+
+    def _symbol_workers(self, symbol: str):
+        return [w.name for w in self.cfg.workers if w.enabled and w.symbol == symbol]
 
     def say(self, ts, worker: str, text: str, tone: str = "info") -> None:
         self.ctx.storage.add_thought(ts, worker, text, tone)
@@ -187,6 +216,7 @@ class AnalystBot(Bot):
         self.on(SessionEvent, self.on_session)
         self.on(OrderRejected, lambda e: e.intent.purpose is Purpose.ENTRY and self._block(e.reason))
         self.on(ContractRejected, lambda e: self._block(e.reason))
+        self.on(EntryVetoed, lambda e: self._block("research: " + e.reason.split(":")[0]))
 
     def _block(self, reason: str) -> None:
         key = reason.split("(")[0].split(":")[0].split("$")[0].strip()

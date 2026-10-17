@@ -15,13 +15,16 @@ Automated day-trading bots (0DTE options on US stocks/ETFs, plus a crypto editio
   position reconciliation, PDT guard) to make a test or backtest pass.
 - Report backtest results honestly, losses included. Nothing here is proven profitable. The crypto
   edition has lost money in every backtest so far (README, "Known limits").
+- The owner wants "no guessing": every entry must clear the research gate (evidence from past
+  sessions). Don't add a path that opens a position without a `ResearchCleared` event, and don't
+  promise accuracy or profits: say what the evidence shows and what it can't.
 
 ## Layout
 
 ```
 scalpcity/
   __main__.py        CLI: bots | backtest | replay | paper | live | download
-  orchestrator.py    builds and wires the 26 bots; BOT_ORDER = event delivery order (it matters)
+  orchestrator.py    builds and wires the 29 bots; BOT_ORDER = event delivery order (it matters)
   core/              events (the bus messages), bus (deterministic), config, calendar, costs, storage
   bots/              one skill per bot; they talk only through events on the bus
   brokers/           alpaca.py (paper/live), sim.py (backtest/replay)
@@ -58,6 +61,16 @@ To see the city working, use the `run-scalpcity` skill (`.claude/skills/run-scal
 
 ## Design facts worth knowing before you edit
 
+- **Research gate (bots/research_bots.py).** `key_levels` marks levels from the last
+  `research.lookback_days` sessions; `edge_tracker` scores every signal (history included) on the
+  underlying: target_atr before stop_atr within horizon_minutes; `research_gate` sits between
+  `signal_filter` (WorkerSignal) and `contract_selector` (which listens to `ResearchCleared`) and
+  emits `EntryVetoed` with a reason otherwise. Signals fired on history carry `backfill=True`: the
+  edge tracker studies them, while the filter and exit manager ignore them. Mechanics tests turn the
+  gate off in `make_cfg()`; research behaviour is tested in `tests/test_research.py`.
+- **History must be delivered candle by candle** (`PriceFeedBot._history`: emit, then drain, per
+  candle). Queuing all history first and draining once made every past signal see only later
+  days, and the edge tracker scored them all as 0R timeouts. Anything time-ordered depends on this.
 - **Markets.** `config.market` is `options` or `crypto`; `calendar.set_market()` switches the
   whole process (the orchestrator and `config.load` call it). Crypto days run 00:00 to 24:00 ET,
   every day. Tests reset to `options` through an autouse fixture in `tests/conftest.py`.
@@ -114,6 +127,10 @@ To see the city working, use the `run-scalpcity` skill (`.claude/skills/run-scal
 - Work branch: `claude/blissful-ride-nikmtn`. No PR opened yet.
 - Done: Alpaca live data, crypto edition, seven single-stock option towers, nearest-expiry
   selection, Alpaca historical source, walkable city (robots, building interiors, Vault), phone
-  access token, macOS certificate fix.
+  access token, macOS certificate fix, double-click launchers (`Start … City.command`), research
+  bots (key levels, edge tracker, research gate) with a Research room in every tower.
+- One real-data day (2026-10-15, after studying 10-08..10-14) with the gate on: 15 trades on SPY,
+  META, AMZN, IWM, +$1,418; every QQQ/TSLA/AAPL/MSFT trigger was vetoed for a losing record. One day
+  proves nothing.
 - Open: a full options backtest on real data has not finished yet (stopped at the 2-hour cloud
   limit). Run `backtest --start 2026-09-01 --end 2026-10-15 --source alpaca` first, then longer.

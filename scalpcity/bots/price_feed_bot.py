@@ -31,11 +31,9 @@ class PriceFeedBot(Bot):
         symbols = self.cfg.symbols
         if not days:
             return
-        warm_day = cal.prev_trading_day(days[0])
-        warm = sorted((b for s in symbols for b in self.loader.load(s, warm_day)), key=lambda b: b.start)
-        for b in warm:
-            self.emit(CandleClosed(b.start + timedelta(minutes=1), b, backfill=True))
-        await self.bus.drain()
+        warm = sorted((b for d in self.warm_days(days[0]) for s in symbols for b in self.loader.load(s, d)),
+                      key=lambda b: b.start)
+        await self._history(warm)
 
         for d in days:
             bars = {s: {b.start: b for b in self.loader.load(s, d)} for s in symbols}
@@ -54,6 +52,21 @@ class PriceFeedBot(Bot):
                 if pace > 0:
                     await asyncio.sleep(pace)
             await self.bus.emit(Heartbeat(cal.session_close(d)))
+
+    async def _history(self, bars) -> None:
+        """Deliver past candles one at a time, each followed by everything it triggers, so time-ordered
+        consumers (the edge tracker scoring past signals) see history in the order it happened."""
+        for b in bars:
+            self.emit(CandleClosed(b.start + timedelta(minutes=1), b, backfill=True))
+            await self.bus.drain()
+
+    def warm_days(self, first: date) -> list[date]:
+        """Past sessions replayed (as history) before trading: the research bots study these."""
+        out, d = [], first
+        for _ in range(max(1, self.cfg.research.lookback_days)):
+            d = cal.prev_trading_day(d)
+            out.append(d)
+        return sorted(out)
 
     STEPS = 12  # one tick every 5 seconds
 
@@ -106,18 +119,17 @@ class PriceFeedBot(Bot):
         self.spawn(stream.run())
 
     async def _backfill(self, client) -> None:
-        """Yesterday + today-so-far bars so EMA50/ATR/VWAP/opening range are correct on a mid-day start."""
+        """Past sessions + today-so-far: indicators are right on a mid-day start, and the research bots
+        have history to study before the first trade."""
         today = cal.now_et().date()
-        days = [cal.prev_trading_day(today)] + ([today] if cal.is_trading_day(today) else [])
+        days = self.warm_days(today) + ([today] if cal.is_trading_day(today) else [])
         cutoff = cal.now_et().replace(second=0, microsecond=0)
         try:
             bars = []
             for d in days:
                 for s in self.cfg.symbols:
                     bars += [b for b in await client.minute_bars(s, d) if b.start + timedelta(minutes=1) <= cutoff]
-            for b in sorted(bars, key=lambda b: b.start):
-                self.emit(CandleClosed(b.start + timedelta(minutes=1), b, backfill=True))
-            await self.bus.drain()
+            await self._history(sorted(bars, key=lambda b: b.start))
             self.log.info("backfilled %d bars", len(bars))
         finally:
             await client.close()

@@ -7,7 +7,7 @@ from ..core import calendar as cal
 from ..core.costs import round_qty
 from ..core.events import (ContractRejected, ContractSelected, HealthStatus, KillSwitch, KillSwitchRequest,
                            OrderApproved, OrderFailed, OrderIntent, OrderRejected, OrderSide, PnLUpdate, PositionOpened,
-                           Purpose, SessionEvent, SessionKind, Side, TradeClosed, WorkerSignal, WorkerStatus)
+                           Purpose, ResearchCleared, SessionEvent, SessionKind, Side, TradeClosed, WorkerStatus)
 from .base import Bot
 
 _intent_ids = itertools.count(1)
@@ -15,14 +15,14 @@ _intent_ids = itertools.count(1)
 
 class ContractSelectorBot(Bot):
     name = "contract_selector"
-    skill = "Pick the option contract (expiry + strike) for a worker signal; reject illiquid ones"
+    skill = "Pick the option contract (expiry + strike) for a researched signal; reject illiquid ones"
 
     def setup(self) -> None:
-        self.on(WorkerSignal, self.on_signal)
+        self.on(ResearchCleared, self.on_signal)
 
     MAX_EXPIRY_SEARCH = 7  # trading days to look past `dte` for a listed expiry (most stocks list Fridays only)
 
-    async def on_signal(self, ws: WorkerSignal) -> None:
+    async def on_signal(self, ws: ResearchCleared) -> None:
         w = self.cfg.worker(ws.worker)
         sig = ws.signal
         chain_bot = self.bot("options_chain")

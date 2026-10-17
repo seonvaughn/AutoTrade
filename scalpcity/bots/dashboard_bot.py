@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from ..core import calendar as cal
-from ..core.events import (Alert, CandleClosed, DailySummary, Fill, Heartbeat, HealthStatus, IndicatorValue,
+from ..core.events import (Alert, CandleClosed, DailySummary, EntryVetoed, Fill, KeyLevels, ResearchCleared, Heartbeat, HealthStatus, IndicatorValue,
                            KillSwitch, KillSwitchRequest, Leaderboard, PnLUpdate, PositionOpened, OptionQuote,
                            SessionEvent, SessionKind, SetupUpdate, Thought, Tick, TradeClosed, WorkerStatus, Purpose)
 from ..core.costs import fmt_qty
@@ -31,7 +31,8 @@ LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 # Which crew bots work for a worker (shown inside its building), by trigger.
 TRIGGER_BOTS = {"vwap_cross": ["vwap", "sig_vwap_cross"], "ema50_cross": ["ema50", "sig_ema50_cross"],
                 "orb": ["opening_range", "sig_orb"]}
-SHARED_CREW = ["price_feed", "candles", "atr", "signal_filter", "contract_selector", "position_sizer",
+SHARED_CREW = ["price_feed", "candles", "atr", "key_levels", "edge_tracker", "research_gate",
+               "signal_filter", "contract_selector", "position_sizer",
                "risk_manager", "execution", "exit_manager", "ledger", "daily_goal", "journal"]
 
 
@@ -62,7 +63,12 @@ class DashboardBot(Bot):
         self.dirty_candles: set = set()
         self.summary: dict | None = None
         self.alerts: deque = deque(maxlen=20)
+        self.levels: dict[str, list[dict]] = {}
+        self.vetoes: dict[str, deque] = {}
+        self.cleared: dict[str, deque] = {}
         for w in self.workers:
+            self.vetoes[w.name] = deque(maxlen=40)
+            self.cleared[w.name] = deque(maxlen=40)
             self.thoughts[w.name] = deque(maxlen=60)
             self.last_trades[w.name] = deque(maxlen=60)
             self.stats[w.name] = {"trades": 0, "wins": 0, "pnl": 0.0}
@@ -85,6 +91,26 @@ class DashboardBot(Bot):
         self.on(Alert, self.on_alert)
         self.on(CandleClosed, self.on_candle)
         self.on(IndicatorValue, self.on_indicator)
+        self.on(KeyLevels, self.on_levels)
+        self.on(EntryVetoed, self.on_vetoed)
+        self.on(ResearchCleared, self.on_cleared)
+
+    def on_levels(self, e: KeyLevels) -> None:
+        self.levels[e.symbol] = [{"price": lv.price, "label": lv.label, "strength": lv.strength} for lv in e.levels]
+        self.dirty = True
+
+    def on_vetoed(self, e: EntryVetoed) -> None:
+        s = e.signal
+        self.vetoes.setdefault(e.worker, deque(maxlen=40)).appendleft(
+            {"t": e.ts.strftime("%H:%M"), "side": s.side.value, "trigger": s.trigger, "reason": e.reason})
+        self.dirty = True
+
+    def on_cleared(self, e: ResearchCleared) -> None:
+        s, nxt = e.signal, e.evidence.get("next_level")
+        self.cleared.setdefault(e.worker, deque(maxlen=40)).appendleft(
+            {"t": e.ts.strftime("%H:%M"), "side": s.side.value, "trigger": s.trigger,
+             "edge": e.evidence.get("edge"), "next": nxt})
+        self.dirty = True
 
     @property
     def workers(self):
@@ -114,6 +140,8 @@ class DashboardBot(Bot):
                 d.clear()
             for sym in self.candles:
                 self.candles[sym] = {k: v for k, v in self.candles[sym].items() if v["t"][:10] == e.day.isoformat()}
+            for d in list(self.vetoes.values()) + list(self.cleared.values()):
+                d.clear()
             self.push({"type": "reset_day", "day": e.day.isoformat()})
         self.dirty = True
 
@@ -242,11 +270,16 @@ class DashboardBot(Bot):
         if pos:
             pos = {**pos, "pnl": round((pos["mark"] - pos["entry"]) * pos["qty"] * pos["mult"], 2)}
         crew = [b for t in w.triggers for b in TRIGGER_BOTS.get(t, [])] + SHARED_CREW
+        edge_bot = self.bot("edge_tracker")
+        today = self.day or (self.clock.date() if self.clock else None)
+        edges = [edge_bot.stats(w.symbol, t, today) for t in w.triggers] if edge_bot and today else []
+        research = {"gate": self.cfg.research.enabled and w.research_gate, "edges": edges,
+                    "vetoes": list(self.vetoes.get(w.name, [])), "cleared": list(self.cleared.get(w.name, []))}
         return {"name": w.name, "symbol": w.symbol, "triggers": w.triggers, "status": status,
                 "clock_reason": self.clocked_out.get(w.name), "setups": setups, "charge": best, "side": best_side,
                 "position": pos, "realized": round(pnl["realized"], 2), "unrealized": round(pnl["unrealized"], 2),
                 "trades": st["trades"], "wins": st["wins"], "last_trades": list(self.last_trades[w.name]),
-                "goal": w.daily_goal, "max_loss": w.max_daily_loss, "dte": w.dte, "crew": crew,
+                "goal": w.daily_goal, "max_loss": w.max_daily_loss, "dte": w.dte, "crew": crew, "research": research,
                 "settings": {"strike": w.strike, "dte": w.dte, "window": f"{w.start_time}-{w.end_time}",
                              "sizing": vars(w.sizing), "exits": vars(w.exits), "cooldown": w.cooldown_minutes,
                              "max_trades": w.max_trades_per_day, "trend_filter": w.trend_filter,
@@ -277,6 +310,8 @@ class DashboardBot(Bot):
             "summary": self.summary,
             "roster": [{"name": n, "skill": s} for n, s in orch.roster()] if orch else [],
             "crew": self.crew(),
+            "levels": self.levels,
+            "research": vars(self.cfg.research),
         }
 
     def snapshot(self) -> dict:

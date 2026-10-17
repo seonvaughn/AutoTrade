@@ -54,7 +54,7 @@ class _SignalBot(Bot):
     def fire(self, ev: IndicatorValue, side: Side, level: float) -> None:
         c = ev.candle
         self.emit(Signal(ev.ts, c.symbol, self.trigger, side, c.close, level, self.atr.get(c.symbol),
-                         ema50=self.ema.get(c.symbol), vwap=self.vwap.get(c.symbol)))
+                         ema50=self.ema.get(c.symbol), vwap=self.vwap.get(c.symbol), backfill=ev.backfill))
         self.last_charge.pop(c.symbol, None)
 
     # -- live charge meter
@@ -90,7 +90,7 @@ class _CrossBot(_SignalBot):
         c, level = ev.candle, ev.value
         day = c.start.date()
         prev = self.prev.get(c.symbol)
-        if prev and prev.day == day and not ev.backfill:
+        if prev and prev.day == day:  # history fires too (backfill=True): studied, never traded
             if prev.close <= prev.level and c.close > level:
                 self.fire(ev, Side.CALL, level)
             elif prev.close >= prev.level and c.close < level:
@@ -148,7 +148,7 @@ class ORBBot(_SignalBot):
         just_locked = c.symbol not in self.range
         hi, lo = ev.value, ev.low
         self.range[c.symbol] = (hi, lo)
-        if just_locked or prev is None or ev.backfill:
+        if just_locked or prev is None:
             return  # the candle that completes the range can't break it
         fired = self.fired[c.symbol]
         if Side.CALL not in fired and prev <= hi < c.close:

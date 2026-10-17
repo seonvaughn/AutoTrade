@@ -30,7 +30,7 @@ await step("enter a tower", async () => {
   await page.waitForSelector("#inside:not([hidden]) #elevator button", { timeout: 5000 });
   await page.screenshot({ path: `${out}/2-inside.png` });
 });
-for (const f of ["charts", "thoughts", "trades", "rules", "crew", "trading"]) {
+for (const f of ["research", "charts", "thoughts", "trades", "rules", "crew", "trading"]) {
   await step(`floor ${f}`, async () => {
     await page.click(`#elevator [data-floor="${f}"]`);
     await page.waitForTimeout(300);

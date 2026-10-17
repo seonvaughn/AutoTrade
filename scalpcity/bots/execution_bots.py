@@ -157,6 +157,8 @@ class ExitManagerBot(Bot):
             self.exit(worker, reason, ts)
 
     def on_signal(self, s: Signal) -> None:
+        if s.backfill:
+            return
         for worker, p in list(self.pos.items()):
             w = self.cfg.worker(worker)
             if (w.exits.exit_on_reversal and w.symbol == s.symbol and s.trigger in w.triggers

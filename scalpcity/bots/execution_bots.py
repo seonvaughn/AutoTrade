@@ -117,9 +117,13 @@ class ExitManagerBot(Bot):
         p = self.pos[e.worker] = {"contract": e.contract, "qty": e.qty, "entry": e.entry_price, "opened": e.ts,
                                   "peak": 0.0, "exiting": False, "quote": None, "under": None}
         s = e.signal
-        if self.cfg.worker(e.worker).exits.measure == "underlying" and s and s.atr:
-            p["under"] = {"symbol": s.symbol, "entry": s.close, "atr": s.atr,
-                          "way": 1 if s.side is Side.CALL else -1}
+        x = self.cfg.worker(e.worker).exits
+        way = 1 if s and s.side is Side.CALL else -1
+        if s and x.measure == "structure" and s.stop is not None and s.target is not None:
+            p["under"] = {"symbol": s.symbol, "stop": s.stop, "target": s.target, "way": way}
+        elif s and x.measure == "underlying" and s.atr:
+            p["under"] = {"symbol": s.symbol, "stop": s.close - way * x.stop_atr * s.atr,
+                          "target": s.close + way * x.target_atr * s.atr, "way": way}
 
     def on_fill(self, e: Fill) -> None:
         p = self.pos.get(e.intent.worker)
@@ -147,11 +151,9 @@ class ExitManagerBot(Bot):
         for worker, p in list(self.pos.items()):
             u = p["under"]
             if u and u["symbol"] == t.symbol and not p["exiting"] and p["qty"] > QTY_EPS:
-                x = self.cfg.worker(worker).exits
-                move = u["way"] * (t.price - u["entry"]) / u["atr"]
-                if move <= -x.stop_atr:
+                if u["way"] * (t.price - u["stop"]) <= 0:
                     self.exit(worker, "stop", t.ts)
-                elif move >= x.target_atr:
+                elif u["way"] * (t.price - u["target"]) >= 0:
                     self.exit(worker, "target", t.ts)
 
     def evaluate(self, worker: str, p: dict, ts: datetime) -> None:

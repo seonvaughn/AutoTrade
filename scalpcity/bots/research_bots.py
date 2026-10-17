@@ -17,6 +17,7 @@ from datetime import date, timedelta
 from ..core import calendar as cal
 from ..core.events import (CandleClosed, EntryVetoed, KeyLevel, KeyLevels, ResearchCleared, Side, Signal,
                            WorkerSignal)
+from ..core.config import SMC_TRIGGERS
 from .base import Bot
 
 BUCKET_MINUTES = 15  # turning points are found on 15-minute bars
@@ -123,10 +124,19 @@ class EdgeTrackerBot(Bot):
             return
         r = self.cfg.research
         way = 1 if s.side is Side.CALL else -1
-        self.pending.append({"sym": s.symbol, "trigger": s.trigger, "side": s.side.value, "day": s.ts.date(),
-                             "entry": s.close, "way": way, "risk": r.stop_atr * s.atr,
-                             "target": s.close + way * r.target_atr * s.atr, "stop": s.close - way * r.stop_atr * s.atr,
-                             "until": s.ts + timedelta(minutes=r.horizon_minutes), "last": s.close})
+        if s.stop is not None and s.target is not None:   # the trade the chart planned: its own stop and target
+            risk = abs(s.close - s.stop)
+            if risk <= 0 or way * (s.target - s.close) <= 0:
+                return
+            p = {"risk": risk, "target": s.target, "stop": s.stop, "win_r": abs(s.target - s.close) / risk,
+                 "until": s.ts + timedelta(minutes=self.cfg.smc.horizon_minutes)}
+        else:
+            p = {"risk": r.stop_atr * s.atr, "target": s.close + way * r.target_atr * s.atr,
+                 "stop": s.close - way * r.stop_atr * s.atr, "win_r": r.target_atr / r.stop_atr,
+                 "until": s.ts + timedelta(minutes=r.horizon_minutes)}
+        p.update(sym=s.symbol, trigger=s.trigger, side=s.side.value, day=s.ts.date(), entry=s.close, way=way,
+                 last=s.close, plan=self.in_plan(s))
+        self.pending.append(p)
 
     def on_candle(self, e: CandleClosed) -> None:
         c = e.candle
@@ -144,7 +154,7 @@ class EdgeTrackerBot(Bot):
             if hit_stop:                            # both in one candle: assume the worst
                 self._record(p, "loss", -1.0)
             elif hit_target:
-                self._record(p, "win", self.cfg.research.target_atr / self.cfg.research.stop_atr)
+                self._record(p, "win", p["win_r"])
             elif c.start + timedelta(minutes=1) >= p["until"]:
                 self._record(p, "timeout", p["way"] * (c.close - p["entry"]) / p["risk"])
             else:
@@ -152,9 +162,25 @@ class EdgeTrackerBot(Bot):
                 keep.append(p)
         self.pending = keep
 
+    def in_plan(self, s: Signal) -> bool:
+        """Would the trading plan have taken this chart-planned setup? With the daily bias, inside a worker's
+        trading window, not on a news blackout (TJR Days 19, 29, 34). Those are the setups whose record counts."""
+        if s.stop is None:
+            return True
+        news = self.bot("news_calendar")
+        if news and news.blocked(s.ts):
+            return False
+        d = s.ts.date()
+        if not any(w.enabled and w.symbol == s.symbol and s.trigger in w.triggers
+                   and cal.at(d, w.start_time) <= s.ts < cal.at(d, w.end_time) for w in self.cfg.workers):
+            return False
+        db = self.bot("daily_bias")
+        want = "bullish" if s.side is Side.CALL else "bearish"
+        return not self.cfg.smc.require_daily_bias or (db is not None and db.bias(s.symbol, d)["D"] == want)
+
     def _record(self, p: dict, outcome: str, r: float) -> None:
         rows = self.results.setdefault((p["sym"], p["trigger"]), [])
-        rows.append((p["day"], p["side"], outcome, round(r, 3)))
+        rows.append((p["day"], p["side"], outcome, round(r, 3), p.get("plan", True)))
         oldest = _lookback_start(p["day"], self.cfg.research.lookback_days + 1)
         if rows[0][0] < oldest:
             rows[:] = [x for x in rows if x[0] >= oldest]
@@ -162,16 +188,24 @@ class EdgeTrackerBot(Bot):
     def stats(self, symbol: str, trigger: str, today: date) -> dict:
         r = self.cfg.research
         start = _lookback_start(today, r.lookback_days)
-        rows = [x for x in self.results.get((symbol, trigger), []) if start <= x[0] <= today]
+        if trigger in r.pooled_triggers:             # one model, every market: score all tickers together
+            pool = [x for (_, t), xs in self.results.items() if t == trigger for x in xs]
+        else:
+            pool = self.results.get((symbol, trigger), [])
+        rows = [x for x in pool if start <= x[0] <= today and (len(x) < 5 or x[4])]  # only setups the plan would have taken
         n = len(rows)
         wins = sum(1 for x in rows if x[2] == "win")
         losses = sum(1 for x in rows if x[2] == "loss")
         avg_r = sum(x[3] for x in rows) / n if n else 0.0
         win_rate = wins / n if n else 0.0
-        proven = n >= r.min_samples and win_rate >= r.min_win_rate and avg_r >= r.min_avg_r
+        # Chart-planned triggers carry their own reward:risk, so a low win rate can still pay: they are judged
+        # on expectancy (average R per setup). The indicator triggers keep the win-rate bar too.
+        planned = trigger in SMC_TRIGGERS
+        proven = n >= r.min_samples and avg_r >= r.min_avg_r and (planned or win_rate >= r.min_win_rate)
         return {"symbol": symbol, "trigger": trigger, "n": n, "wins": wins, "losses": losses,
                 "timeouts": n - wins - losses, "win_rate": round(win_rate, 3), "avg_r": round(avg_r, 3),
-                "proven": proven, "since": start.isoformat()}
+                "proven": proven, "since": start.isoformat(), "pooled": trigger in r.pooled_triggers,
+                "judged_on": "expectancy" if planned else "win rate and expectancy"}
 
 
 class ResearchGateBot(Bot):
@@ -188,6 +222,8 @@ class ResearchGateBot(Bot):
             self.emit(ResearchCleared(ws.ts, ws.worker, sig, {"gate": "off"}))
             return
         evidence, reason = self.check(sig)
+        if not reason:
+            evidence, reason = self.check_tjr(sig, evidence)
         if reason:
             self.emit(EntryVetoed(ws.ts, ws.worker, sig, reason, evidence))
         else:
@@ -225,15 +261,17 @@ class ResearchGateBot(Bot):
         if edge["n"] < r.min_samples:
             return ev, (f"not proven: only {edge['n']} past {sig.trigger} signals on {sig.symbol} in "
                         f"{r.lookback_days} sessions (need {r.min_samples})")
-        if edge["win_rate"] < r.min_win_rate or edge["avg_r"] < r.min_avg_r:
+        if not edge["proven"]:
             return ev, (f"no edge: {sig.trigger} on {sig.symbol} won {edge['wins']}/{edge['n']} "
                         f"({edge['win_rate']:.0%}), avg {edge['avg_r']:+.2f}R over {r.lookback_days} sessions")
         against = "bearish" if sig.side is Side.CALL else "bullish"
-        bad = [tf for tf, t in trends.items() if t == against]
+        bad = [tf for tf, t in trends.items() if t == against and sig.stop is None]
         if bad:
             return ev, f"against the {', '.join(bad)} trend ({against})"
-        if inside:
+        if inside and sig.stop is None:              # TJR setups bring their own zones (order blocks, gaps)
             return ev, f"inside a {inside['tf']} {inside['kind']} zone ({inside['lo']:,.2f}-{inside['hi']:,.2f})"
+        if sig.target is not None:
+            return ev, None                           # chart-planned trades: reward:risk is judged in check_tjr
         if sig.side is Side.CALL:
             ahead = [lv for lv in levels if lv.price > sig.close]
             nxt = min(ahead, key=lambda lv: lv.price) if ahead else None
@@ -245,4 +283,48 @@ class ResearchGateBot(Bot):
             ev["next_level"] = {"price": nxt.price, "label": nxt.label, "room_atr": round(room, 2)}
             if room < r.min_room_atr:
                 return ev, f"blocked by {nxt.label} at {nxt.price:,.2f}, only {room:.1f} ATR away"
+        return ev, None
+
+    def _trend(self, symbol: str, tf: str) -> str:
+        ms = self.bot("market_structure")
+        return ms.trend(symbol, tf) if ms else "unknown"
+
+    def check_tjr(self, sig: Signal, ev: dict) -> tuple[dict, str | None]:
+        """The boot camp rules that apply to every entry: no news days (Day 19); for the chart-planned TJR
+        models also the daily bias (Day 34) and the planned reward:risk (Day 37)."""
+        news = self.bot("news_calendar")
+        why = news.blocked(sig.ts) if news else None
+        if why:
+            return ev, why
+        if sig.stop is None:
+            return ev, None
+        m = self.cfg.smc
+        db = self.bot("daily_bias")
+        bias = db.bias(sig.symbol, sig.ts.date()) if db else {"D": "unknown"}
+        ev["daily_bias"] = bias
+        ev["setup"] = sig.setup
+        want = "bullish" if sig.side is Side.CALL else "bearish"
+        if m.require_daily_bias and bias["D"] != want:
+            what = "no daily bias yet (needs daily candles)" if bias["D"] == "unknown" else f"daily bias is {bias['D']}"
+            return ev, f"against the daily bias: {what}, this is a {want} setup"
+        against = [tf for tf in ("4h", "1h") if self._trend(sig.symbol, tf) == ("bearish" if want == "bullish" else "bullish")]
+        setup_tf = (sig.setup or {}).get("setup_tf", "5m")
+        if against:          # the lower timeframes are retracing the daily: only fade it from the right place
+            if setup_tf in ("1m", "5m"):
+                return ev, (f"the {' and '.join(against)} trend opposes the daily bias: needs a 15m setup, "
+                            f"this one is {setup_tf} (Day 35)")
+            rng = bias.get("D_range")
+            half = "premium" if want == "bearish" else "discount"
+            if not rng:
+                return ev, f"the {' and '.join(against)} trend opposes the daily bias and the daily range is unknown"
+            if (want == "bearish" and sig.close < rng["eq"]) or (want == "bullish" and sig.close > rng["eq"]):
+                return ev, (f"the {' and '.join(against)} trend opposes the daily bias and price isn't in the daily "
+                            f"{half} yet (equilibrium {rng['eq']:,.2f}, Day 36)")
+        if sig.target is None:
+            return ev, "no resting liquidity ahead to target"
+        risk, reward = abs(sig.close - sig.stop), abs(sig.target - sig.close)
+        rr = reward / risk if risk > 0 else 0.0
+        ev["plan"] = {"stop": round(sig.stop, 4), "target": round(sig.target, 4), "rr": round(rr, 2)}
+        if rr < m.min_rr:
+            return ev, f"reward:risk {rr:.2f} below {m.min_rr:g} (target {sig.target:,.2f}, stop {sig.stop:,.2f})"
         return ev, None

@@ -2,7 +2,8 @@
 
 Automated day-trading bots (0DTE options on US stocks/ETFs, plus a crypto edition) with a 3D
 "city" dashboard. Owner: seonvaughn. User-facing docs: `README.md`. Strategy background:
-`docs/video-analysis.md`.
+`docs/video-analysis.md` (the original video) and `docs/tjr-bootcamp/` (TJR's boot camp, the strategy the
+towers trade now: start with its `README.md`).
 
 ## Safety rules (never break these)
 
@@ -24,7 +25,7 @@ Automated day-trading bots (0DTE options on US stocks/ETFs, plus a crypto editio
 ```
 scalpcity/
   __main__.py        CLI: bots | backtest | replay | paper | live | download
-  orchestrator.py    builds and wires the 36 bots; BOT_ORDER = event delivery order (it matters)
+  orchestrator.py    builds and wires the 43 bots; BOT_ORDER = event delivery order (it matters)
   core/              events (the bus messages), bus (deterministic), config, calendar, costs, storage
   bots/              one skill per bot; they talk only through events on the bus
   brokers/           alpaca.py (paper/live), sim.py (backtest/replay)
@@ -76,6 +77,24 @@ To see the city working, use the `run-scalpcity` skill (`.claude/skills/run-scal
   read-only queries for the triggers `zone_reaction` (30s), `structure_break` (5m), `fib_pullback`
   (1m) and for the gate (`research.align_timeframes`, zones as obstacles). The owner asked for a
   95% win rate: don't promise it; report win rate *and* profit factor.
+- **TJR model (bots/smc_bots.py, docs/tjr-bootcamp/README.md maps every rule to code).**
+  - `market_structure`: TJR's two-candle highs and lows. A break of structure is a candle BODY closing beyond the most
+    recent high or low; wicks never count.
+  - `liquidity`: resting highs and lows per timeframe plus the prior day's; records sweeps.
+  - `imbalances`: three-candle fair value gaps. `order_blocks`: the leg that swept, marked at the break.
+  - `daily_bias`: the last daily break, from days before the session; also the daily equilibrium and the 4h trend.
+  - `news_calendar`: blackout days, a wait after releases, half-size days.
+  - `sig_smc` (trigger `smc_retrace`): a sweep then a break on 5m/15m; then a retrace into an order block or FVG in
+    the discount/premium half; then a break one timeframe lower. The Signal carries `stop` (beyond the swept extreme)
+    and `target` (the next resting liquidity ≥ min_rr).
+  - `research_gate.check_tjr`: news; daily bias must agree; when the 1h/4h oppose it, a 15m setup and price in the
+    daily premium/discount; reward:risk.
+  - The edge tracker scores chart-planned signals at their own stop/target, counts only setups the plan would have
+    taken (`in_plan`: bias, window, news), pools tickers (`research.pooled_triggers`) and judges them on expectancy
+    (avg R), not win rate.
+  - Exits: `exits.measure: structure`. Sizing: `mode: risk` from the chart stop × delta. `risk.max_trades_per_day`
+    caps the whole account (1, TJR Day 29).
+  - Keep it faithful to the notes: when changing a rule, cite the day it comes from.
 - **Never price a backtest fill from a stale option trade.** `SimChain._from_last_trade` moves the
   last real trade by delta × the stock's move since that trade. Using the last trade as-is let the
   bots "buy" at prices from before the move that fired the signal: a losing strategy showed
@@ -158,5 +177,12 @@ To see the city working, use the `run-scalpcity` skill (`.claude/skills/run-scal
   "proven" over the past 5 sessions won ~39% going forward, below the 45% the gate required. The
   past-5-session edge does not persist, so the gate is selecting noise. Shipped config still uses
   premium exits.
-- Open: a full options backtest on real data has not finished yet (stopped at the 2-hour cloud
-  limit). Run `backtest --start 2026-09-01 --end 2026-10-15 --source alpaca` first, then longer.
+- **Six-strategy run (charts + gate, before TJR):** −$5,423, 363 trades, 44.6% wins, profit factor 0.58, 5 green /
+  20 red days. Every indicator/chart trigger lost; they remain in the code but no tower trades them.
+- **TJR boot camp (2026-10-17):** 45 of 46 videos studied (`docs/tjr-bootcamp/`). **Day 21 ("How to Take a Win",
+  https://www.youtube.com/watch?v=z9p7OThLkr4) is still missing.** YouTube blocks the cloud server, so ask the owner to
+  paste its transcript, then read it in full and write `21-how-to-take-a-win.md`.
+- **News dates:** the 2026 FOMC days are in `config.yaml`. The CPI/PPI/NFP dates there are unverified (bls.gov is
+  unreachable from cloud sessions) and incomplete. Ask the owner to check https://www.bls.gov/schedule/.
+- Towers now trade `smc_retrace` only, 09:35–11:00, one trade a day for the account, $300 risk (1%). QQQ TREND and QQQ
+  are disabled (same ticker as QQQ OG).

@@ -1,6 +1,6 @@
 # Day 24: Order Blocks Pt 3 (marking them, putting it together)
 Source: https://www.youtube.com/watch?v=12_F-mIUfL0 (28 min). Read in full from the transcript.
-(Day 22, Order Blocks Pt 2, had no transcript available at the time of writing.)
+(Day 22, Order Blocks Pt 2, covers how to spot them: see 22-order-blocks-2.md.)
 
 ## Concepts
 - **Definition:** the leg up or down just before the break of structure. That leg made the liquidity sweep and filled

@@ -1,6 +1,6 @@
 # Day 32: Execution Pt 2 (sweep + BOS, sweep + BOS + order block)
 Source: https://www.youtube.com/watch?v=SLhIA7vW9x8 (24 min). Read in full from the transcript.
-(Day 33, Execution Pt 3, covers the FVG and equilibrium models. Its transcript wasn't available.)
+(Day 33, Execution Pt 3, covers the FVG and equilibrium models: see 33-execution-3.md.)
 
 ## Concepts
 - "This is just the bare-bones strategy. It will not make you profitable by itself." Daily bias, take profits and stop

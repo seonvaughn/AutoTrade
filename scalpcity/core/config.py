@@ -8,8 +8,10 @@ from typing import Any
 
 import yaml
 
-VALID_TRIGGERS = {"vwap_cross", "ema50_cross", "orb", "zone_reaction", "structure_break", "fib_pullback"}
-VALID_TIMEFRAMES = {"5m", "15m", "30m", "1h", "D", "W"}
+VALID_TRIGGERS = {"vwap_cross", "ema50_cross", "orb", "zone_reaction", "structure_break", "fib_pullback",
+                  "smc_retrace", "smc_bos"}
+SMC_TRIGGERS = {"smc_retrace", "smc_bos"}
+VALID_TIMEFRAMES = {"5m", "15m", "30m", "1h", "4h", "D", "W"}
 VALID_MODES = {"backtest", "replay", "paper", "live"}
 LIVE_CONFIRM_ENV = "SCALPCITY_LIVE_CONFIRM"
 LIVE_CONFIRM_VALUE = "I_UNDERSTAND_THIS_TRADES_REAL_MONEY"
@@ -26,6 +28,8 @@ class ExitRules:
     # premium: stop / target / profit lock on the option's price (the % above).
     # underlying: stop / target on the stock's move since the entry signal, in 1-minute ATRs: the same
     # yardstick the research gate scores triggers with. Profit lock is off in this mode.
+    # structure: stop / target at the chart levels the TJR triggers plan (beyond the swept high/low;
+    # the next resting liquidity). Signals without levels fall back to premium.
     measure: str = "premium"
     stop_atr: float = 0.7
     target_atr: float = 1.0
@@ -70,6 +74,7 @@ class RiskConfig:
     min_premium: float = 0.30
     max_premium: float = 15.0
     pdt_guard: bool = True
+    max_trades_per_day: int = 0       # entries across the whole account per day (0 = no account-wide cap)
 
 
 @dataclass
@@ -92,6 +97,35 @@ class ResearchConfig:
     # (bullish = higher highs and higher lows; a "range" or "unknown" trend doesn't block).
     align_timeframes: list[str] = field(default_factory=lambda: ["15m", "1h", "D"])
     zone_impulse_atr: float = 2.0     # a supply/demand zone needs a move this many ATRs (of its timeframe)
+    # Triggers scored across all tickers together (one setup, any market: TJR's model is the same everywhere).
+    pooled_triggers: list[str] = field(default_factory=list)
+
+
+@dataclass
+class SmcConfig:
+    """TJR's boot camp model (docs/tjr-bootcamp): liquidity sweep -> break of structure -> retrace into an
+    order block or fair value gap in discount (longs) / premium (shorts) -> lower-timeframe break -> entry."""
+    # where the sweep and the break of structure are read; each is entered on a break one timeframe lower
+    # (5m -> 1m, 15m -> 5m). Day 35: when the 1h/4h oppose the daily bias, only 15m+ setups qualify.
+    setup_timeframes: list[str] = field(default_factory=lambda: ["5m", "15m"])
+    target_timeframes: list[str] = field(default_factory=lambda: ["5m", "15m", "1h"])  # liquidity used as targets
+    stop_buffer_atr: float = 0.1      # stop this far (1-minute ATRs) beyond the swept high/low: spread room
+    min_rr: float = 1.0               # Day 37: the first target at least 1:1
+    max_setup_minutes: int = 120      # a setup not retraced into by then is dropped
+    horizon_minutes: int = 120        # how long the edge tracker gives a past setup to reach stop or target
+    require_daily_bias: bool = True   # Day 34: trade only with the daily structure (last daily break)
+    require_sweep: bool = True        # Days 12, 30, 33: the break must follow a sweep of resting liquidity
+
+
+@dataclass
+class NewsConfig:
+    """Day 19: never trade CPI, PPI, FOMC or NFP days; after other high-impact news, wait for price to settle.
+    Dates must come from the official calendars (bls.gov, federalreserve.gov). A missing date means no blackout."""
+    enabled: bool = True
+    blackout_days: dict[str, str] = field(default_factory=dict)   # "2026-10-14": "CPI"
+    events: dict[str, str] = field(default_factory=dict)          # "2026-10-16 10:00": "Retail sales"
+    derisk_days: dict[str, str] = field(default_factory=dict)     # Day 39: half size, e.g. the day before a holiday
+    wait_minutes: int = 30
 
 
 @dataclass
@@ -148,6 +182,8 @@ class Config:
     risk: RiskConfig = field(default_factory=RiskConfig)
     sim: SimConfig = field(default_factory=SimConfig)
     research: ResearchConfig = field(default_factory=ResearchConfig)
+    smc: SmcConfig = field(default_factory=SmcConfig)
+    news: NewsConfig = field(default_factory=NewsConfig)
     data: DataConfig = field(default_factory=DataConfig)
     broker: BrokerConfig = field(default_factory=BrokerConfig)
     dashboard: DashboardConfig = field(default_factory=DashboardConfig)
@@ -177,7 +213,7 @@ def _build(cls, raw: dict[str, Any] | None):
         raise ValueError(f"unknown {cls.__name__} keys: {sorted(unknown)}")
     kwargs = {}
     nested = {"sizing": Sizing, "exits": ExitRules, "risk": RiskConfig, "sim": SimConfig, "research": ResearchConfig,
-              "data": DataConfig, "broker": BrokerConfig, "dashboard": DashboardConfig}
+              "smc": SmcConfig, "news": NewsConfig, "data": DataConfig, "broker": BrokerConfig, "dashboard": DashboardConfig}
     for k, v in raw.items():
         if k in nested and isinstance(v, dict):
             kwargs[k] = _build(nested[k], v)
@@ -196,6 +232,20 @@ def validate(cfg: Config) -> None:
         raise ValueError(f"research.align_timeframes: unknown {sorted(set(r.align_timeframes) - VALID_TIMEFRAMES)}")
     if r.lookback_days < 1 or r.min_samples < 1 or r.target_atr <= 0 or r.stop_atr <= 0 or r.horizon_minutes < 1:
         raise ValueError("research: lookback_days, min_samples, target_atr, stop_atr and horizon_minutes must be > 0")
+    m = cfg.smc
+    if not m.setup_timeframes or set(m.setup_timeframes) - {"5m", "15m", "30m", "1h"}:
+        raise ValueError("smc.setup_timeframes: choose from 5m, 15m, 30m, 1h")
+    if set(m.target_timeframes) - {"1m", "5m", "15m", "30m", "1h", "4h"}:
+        raise ValueError("smc.target_timeframes: unknown timeframe")
+    if m.min_rr <= 0 or m.max_setup_minutes < 1 or m.horizon_minutes < 1:
+        raise ValueError("smc: min_rr, max_setup_minutes and horizon_minutes must be > 0")
+    from datetime import datetime as _dt
+    for d in cfg.news.blackout_days:
+        _dt.strptime(str(d), "%Y-%m-%d")
+    for d in cfg.news.derisk_days:
+        _dt.strptime(str(d), "%Y-%m-%d")
+    for t in cfg.news.events:
+        _dt.strptime(str(t), "%Y-%m-%d %H:%M")
     if cfg.market not in {"options", "crypto"}:
         raise ValueError("market must be options|crypto")
     if cfg.data.source not in {"synthetic", "csv", "polygon", "alpaca"}:
@@ -218,8 +268,8 @@ def validate(cfg: Config) -> None:
             raise ValueError(f"{w.name}: unknown triggers {sorted(bad)}")
         if w.dte < 0:
             raise ValueError(f"{w.name}: dte must be >= 0")
-        if w.exits.measure not in {"premium", "underlying"}:
-            raise ValueError(f"{w.name}: exits.measure must be premium|underlying")
+        if w.exits.measure not in {"premium", "underlying", "structure"}:
+            raise ValueError(f"{w.name}: exits.measure must be premium|underlying|structure")
         if w.sizing.mode not in {"fixed", "budget", "risk"}:
             raise ValueError(f"{w.name}: sizing.mode must be fixed|budget|risk")
         if not (w.strike in {"atm", "otm1", "itm1"} or w.strike.startswith("delta:")):

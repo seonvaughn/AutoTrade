@@ -1,6 +1,6 @@
 # Day 34: Daily Bias Pt 1
 Source: https://www.youtube.com/watch?v=sjuWqKDsQtI (20 min). Read in full from the transcript.
-(Days 35 and 36, Daily Bias Pt 2 and 3, had no transcripts available at the time of writing.)
+(Days 35 and 36 continue this; see their notes.)
 
 ## Concepts
 - **Why daily bias matters:** a trade against where the market wants to go for the day is likely short-lived or a

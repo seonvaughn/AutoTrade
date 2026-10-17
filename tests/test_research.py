@@ -80,7 +80,7 @@ def score(o, signal, candles):
             await o.bus.emit(CandleClosed(c.start + timedelta(minutes=1), c, backfill=True))
     asyncio.run(go())
     rows = o.ctx.bots["edge_tracker"].results[("QQQ", "vwap_cross")]
-    return rows[-1][2:]
+    return rows[-1][2:4]
 
 
 def test_edge_outcomes():
@@ -222,4 +222,5 @@ def test_premium_mode_does_not_track_the_stock():
     o, _ = _underlying_exits(measure="premium")
     assert o.ctx.bots["exit_manager"].pos["QQQ OG"]["under"] is None      # exits come from option quotes only
     o, _ = _underlying_exits(measure="underlying")
-    assert o.ctx.bots["exit_manager"].pos["QQQ OG"]["under"]["entry"] == 100.0
+    u = o.ctx.bots["exit_manager"].pos["QQQ OG"]["under"]
+    assert (round(u["stop"], 4), round(u["target"], 4)) == (99.3, 101.0)  # 0.7 ATR below, 1.0 ATR above entry

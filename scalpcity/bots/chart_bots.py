@@ -1,6 +1,6 @@
 """Chart-reading bots — each studies one thing across timeframes.
 
-  timeframes   builds 30s / 5m / 15m / 30m / 1h candles next to the 1-minute ones
+  timeframes   builds 30s / 5m / 15m / 30m / 1h / 4h candles next to the 1-minute ones
   htf_levels   reads daily candles: prior week / month / 52-week highs and lows, daily + weekly trend
   structure    swing highs and lows per timeframe: trend (higher highs and lows, or lower), breaks of
                structure, Fibonacci retracements of the latest swing
@@ -18,7 +18,7 @@ from ..core import calendar as cal
 from ..core.events import (BarClosed, Candle, CandleClosed, Heartbeat, KeyLevel, Side, StructureBreak, Tick)
 from .base import Bot
 
-INTRADAY = {"5m": 5, "15m": 15, "30m": 30, "1h": 60}
+INTRADAY = {"5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240}  # 4h: 09:30-13:30 and 13:30-close for stocks
 SWING_K = 2                 # a swing high needs SWING_K lower highs on each side (fractal)
 FIB_RATIOS = (0.382, 0.5, 0.618, 0.786)
 
@@ -92,7 +92,7 @@ def aggregate(bars: list[Candle], key) -> list[Candle]:
 # ---------------------------------------------------------------- bots
 class TimeframeBot(Bot):
     name = "timeframes"
-    skill = "Build 30-second, 5-, 15-, 30-minute and 1-hour candles alongside the 1-minute ones"
+    skill = "Build 30-second, 5-, 15-, 30-minute, 1-hour and 4-hour candles alongside the 1-minute ones"
 
     def setup(self) -> None:
         self.open: dict[tuple[str, str], tuple[int, Candle, bool]] = {}  # (sym, tf) -> (bucket, candle, backfill)

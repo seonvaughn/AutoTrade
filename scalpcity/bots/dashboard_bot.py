@@ -32,8 +32,11 @@ LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 TRIGGER_BOTS = {"vwap_cross": ["vwap", "sig_vwap_cross"], "ema50_cross": ["ema50", "sig_ema50_cross"],
                 "orb": ["opening_range", "sig_orb"], "zone_reaction": ["zones", "sig_zone_reaction"],
                 "structure_break": ["structure", "sig_structure_break"],
-                "fib_pullback": ["structure", "sig_fib_pullback"]}
-STUDY_TIMEFRAMES = ["5m", "15m", "30m", "1h", "D", "W"]
+                "fib_pullback": ["structure", "sig_fib_pullback"],
+                "smc_retrace": ["market_structure", "liquidity", "imbalances", "order_blocks", "daily_bias",
+                                "news_calendar", "sig_smc"],
+                "smc_bos": ["market_structure", "liquidity", "order_blocks", "daily_bias", "news_calendar", "sig_smc"]}
+STUDY_TIMEFRAMES = ["5m", "15m", "30m", "1h", "4h", "D", "W"]
 SHARED_CREW = ["price_feed", "candles", "timeframes", "atr", "key_levels", "htf_levels", "edge_tracker",
                "research_gate",
                "signal_filter", "contract_selector", "position_sizer",
@@ -303,8 +306,25 @@ class DashboardBot(Bot):
                 "fib": {"direction": fib["direction"], "from": fib["from"], "to": fib["to"],
                         "levels": {str(k): v for k, v in fib["levels"].items()}} if fib else None,
                 "htf_levels": [{"price": lv.price, "label": lv.label} for lv in study["levels"]],
+                "tjr": self.tjr(sym, day),
             }
         return out
+
+    def tjr(self, sym: str, day) -> dict:
+        """TJR's read of one ticker: daily bias, structure per timeframe, live setups, this week's news."""
+        ms, db, news, smc = self.bot("market_structure"), self.bot("daily_bias"), self.bot("news_calendar"), self.bot("sig_smc")
+        if not ms or not day:
+            return {}
+        bias = db.bias(sym, day) if db else {}
+        setups = []
+        for (s_sym, tf), s in (smc.setups.items() if smc else []):
+            if s_sym == sym:
+                setups.append({"tf": tf, "side": s["side"].value, "extreme": s["extreme"], "stop": round(s["stop"], 4),
+                               "sweep": s["sweep"], "armed": bool(s["armed"]), "poi": (s["armed"] or {}).get("poi")})
+        return {"bias": {k: bias.get(k) for k in ("W", "D", "4h")}, "daily_range": bias.get("D_range"),
+                "structure": {tf: ms.trend(sym, tf) for tf in ("1h", "15m", "5m", "1m")}, "setups": setups,
+                "news_today": news.blocked(cal.at(day, "10:00")) if news else None,
+                "news_week": news.week(day) if news else []}
 
     def crew(self) -> list[dict]:
         orch = self.bot("orchestrator")
@@ -333,7 +353,7 @@ class DashboardBot(Bot):
             "crew": self.crew(),
             "levels": self.levels,
             "analysis": self.analysis(),
-            "research": vars(self.cfg.research),
+            "research": {**vars(self.cfg.research), "min_rr": self.cfg.smc.min_rr},
         }
 
     def snapshot(self) -> dict:

@@ -25,13 +25,14 @@ broker:
   exit_retries: 3           # walk the exit price down this many times, then send a market order
 
 risk:                       # account-wide limits (apply to all workers together)
-  max_daily_loss: 1200      # hit this -> kill switch: flatten everything, stop for the day
+  max_daily_loss: 900       # hit this -> kill switch: flatten everything, stop for the day (TJR Day 13: 1-3% a day)
   max_open_positions: 3
   max_premium_exposure: 6000
   max_spread_pct: 12
   min_premium: 0.30
   max_premium: 15.0
   pdt_guard: true
+  max_trades_per_day: 1     # entries across ALL towers per day. TJR Day 29: "stick to one for now" until proven
 
 research:                   # no trade on a hunch: evidence from past sessions before every entry
   enabled: true
@@ -50,6 +51,41 @@ research:                   # no trade on a hunch: evidence from past sessions b
   # Multi-timeframe check: never trade against the trend on these timeframes (a range doesn't block).
   align_timeframes: [15m, 1h, D]
   zone_impulse_atr: 2.0     # supply/demand zone = quiet base before a move of 2+ ATRs (15m / 30m / 1h)
+  # TJR's model is the same on every chart, and its setups are rare: score it across all tickers together.
+  pooled_triggers: [smc_retrace, smc_bos]
+
+smc:                        # TJR's boot camp model (docs/tjr-bootcamp/README.md)
+  setup_timeframes: [5m, 15m]   # sweep + break read here; entered on a break one timeframe lower (5m->1m, 15m->5m)
+  target_timeframes: [5m, 15m, 1h]  # resting highs/lows used as targets (plus the prior day's high/low)
+  stop_buffer_atr: 0.1      # stop this far beyond the swept high/low (spread room, Day 38)
+  min_rr: 1.0               # first target at least 1:1 (Day 37)
+  max_setup_minutes: 120
+  horizon_minutes: 120      # how long a past setup gets to reach its stop or target when scoring it
+  require_daily_bias: true  # trade only with the daily structure (Days 34-36)
+  require_sweep: true       # a break without a prior sweep of resting liquidity is not the model (Days 12, 30)
+
+news:                       # TJR Day 19: never trade CPI, PPI, FOMC or NFP days; wait after other big releases
+  enabled: true
+  # FOMC decision days: 2026 schedule as published (Jan 28, Mar 18, Apr 29, Jun 17, Jul 29, Sep 16, Oct 28, Dec 9).
+  # CPI / PPI / jobs dates below are UNVERIFIED (third-party calendars; bls.gov was unreachable from the cloud
+  # session). Check https://www.bls.gov/schedule/ and add the rest: a missing date means NO blackout that day.
+  blackout_days:
+    "2026-01-28": FOMC
+    "2026-03-18": FOMC
+    "2026-04-29": FOMC
+    "2026-06-17": FOMC
+    "2026-07-29": FOMC
+    "2026-09-16": FOMC
+    "2026-10-02": NFP (unverified)
+    "2026-10-14": CPI (unverified)
+    "2026-10-15": PPI (unverified)
+    "2026-10-28": FOMC
+    "2026-12-04": NFP
+    "2026-12-09": FOMC
+  events: {}                # "2026-10-16 10:00": Retail sales  -> no entries until 30 min after
+  wait_minutes: 30
+  derisk_days:              # TJR Day 39: half size (half days are automatic)
+    "2026-11-25": day before Thanksgiving
 
 sim:                        # simulator used by backtest / replay
   starting_cash: 30000
@@ -72,108 +108,146 @@ dashboard:
   host: 127.0.0.1
   port: 8765
 
-# The workers (towers). The first five are from the video. Each one is a ticker + the triggers it trades
-# + its own sizing, exits and daily goal. Sizes below are deliberately SMALL; the video's
-# QQQ OG was putting $6k-13k into each trade (18-37 contracts @ ~$3.50).
+# The workers (towers). Every tower trades TJR's model (smc_retrace): liquidity sweep -> break of
+# structure -> retrace into an order block / fair value gap in discount or premium -> lower-timeframe
+# break. Stop beyond the swept high/low, target the next resting liquidity, size so the stop costs
+# about $300 (1% of the $30k sim account, TJR Day 13). The old indicator triggers (vwap_cross, ema50_cross,
+# orb, zone_reaction, structure_break, fib_pullback) still exist but lost money in every corrected backtest;
+# TJR Day 45: one strategy. QQQ TREND and QQQ are paused: three QQQ towers would triple one setup's risk.
 workers:
   - name: QQQ OG
     symbol: QQQ
-    triggers: [vwap_cross, ema50_cross, orb, zone_reaction, structure_break, fib_pullback]
+    triggers: [smc_retrace]
+    sizing: {mode: risk, risk: 300, max_contracts: 20}
+    exits: {measure: structure, max_hold_minutes: 120, exit_on_reversal: false}
     dte: 0                  # video narration says "one day to expiration"; prices on screen match 0DTE
     strike: atm
-    sizing: {mode: budget, budget: 1500, max_contracts: 20}
-    exits: {take_profit_pct: 12, stop_loss_pct: 10, trail_activate_pct: 4, trail_lock_ratio: 0.6, max_hold_minutes: 20}
+    start_time: "09:35"
+    end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     daily_goal: 600
-    max_daily_loss: 400
+    max_daily_loss: 300
 
   - name: QQQ TREND
     symbol: QQQ
-    triggers: [vwap_cross, ema50_cross, orb, zone_reaction, structure_break, fib_pullback]
-    trend_filter: true      # calls only above EMA50 & VWAP, puts only below
+    triggers: [smc_retrace]
+    sizing: {mode: risk, risk: 300, max_contracts: 20}
+    exits: {measure: structure, max_hold_minutes: 120, exit_on_reversal: false}
     strike: atm
-    sizing: {mode: fixed, contracts: 2}
-    exits: {take_profit_pct: 20, stop_loss_pct: 12, trail_activate_pct: 6, trail_lock_ratio: 0.5, max_hold_minutes: 30}
-    daily_goal: 300
-    max_daily_loss: 250
+    enabled: false          # same ticker as QQQ OG (see above)
+    start_time: "09:35"
+    end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
+    daily_goal: 600
+    max_daily_loss: 300
 
   - name: QQQ
     symbol: QQQ
-    triggers: [vwap_cross, ema50_cross, orb, zone_reaction, structure_break, fib_pullback]
+    triggers: [smc_retrace]
+    sizing: {mode: risk, risk: 300, max_contracts: 20}
+    exits: {measure: structure, max_hold_minutes: 120, exit_on_reversal: false}
     strike: atm
-    sizing: {mode: fixed, contracts: 2}
-    daily_goal: 250
-    max_daily_loss: 200
+    enabled: false          # same ticker as QQQ OG (see above)
+    start_time: "09:35"
+    end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
+    daily_goal: 600
+    max_daily_loss: 300
 
   - name: SPY
     symbol: SPY
-    triggers: [vwap_cross, ema50_cross, orb, zone_reaction, structure_break, fib_pullback]
+    triggers: [smc_retrace]
+    sizing: {mode: risk, risk: 300, max_contracts: 20}
+    exits: {measure: structure, max_hold_minutes: 120, exit_on_reversal: false}
     strike: atm
-    sizing: {mode: budget, budget: 1500, max_contracts: 20}
+    start_time: "09:35"
+    end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     daily_goal: 600
-    max_daily_loss: 400
+    max_daily_loss: 300
 
   - name: IWM
     symbol: IWM
-    triggers: [vwap_cross, ema50_cross, orb, zone_reaction, structure_break, fib_pullback]
+    triggers: [smc_retrace]
+    sizing: {mode: risk, risk: 300, max_contracts: 20}
+    exits: {measure: structure, max_hold_minutes: 120, exit_on_reversal: false}
     strike: atm
-    sizing: {mode: budget, budget: 1000, max_contracts: 20}
-    daily_goal: 400
+    start_time: "09:35"
+    end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
+    daily_goal: 600
     max_daily_loss: 300
 
   # ---- single stocks. dte: 0 means the nearest listed expiry (most list Mon/Wed/Fri, so on Tue/Thu
   # the bots buy the next day's contract). Small budgets: these premiums run $3-15 per share at the money.
   - name: NVDA
     symbol: NVDA
-    triggers: [vwap_cross, ema50_cross, orb, zone_reaction, structure_break, fib_pullback]
+    triggers: [smc_retrace]
+    sizing: {mode: risk, risk: 300, max_contracts: 10}
+    exits: {measure: structure, max_hold_minutes: 120, exit_on_reversal: false}
     strike: atm
-    sizing: {mode: budget, budget: 800, max_contracts: 5}
-    daily_goal: 300
-    max_daily_loss: 200
+    start_time: "09:35"
+    end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
+    daily_goal: 600
+    max_daily_loss: 300
 
   - name: TSLA
     symbol: TSLA
-    triggers: [vwap_cross, ema50_cross, orb, zone_reaction, structure_break, fib_pullback]
+    triggers: [smc_retrace]
+    sizing: {mode: risk, risk: 300, max_contracts: 10}
+    exits: {measure: structure, max_hold_minutes: 120, exit_on_reversal: false}
     strike: atm
-    sizing: {mode: budget, budget: 800, max_contracts: 5}
-    daily_goal: 300
-    max_daily_loss: 200
+    start_time: "09:35"
+    end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
+    daily_goal: 600
+    max_daily_loss: 300
 
   - name: AAPL
     symbol: AAPL
-    triggers: [vwap_cross, ema50_cross, orb, zone_reaction, structure_break, fib_pullback]
+    triggers: [smc_retrace]
+    sizing: {mode: risk, risk: 300, max_contracts: 10}
+    exits: {measure: structure, max_hold_minutes: 120, exit_on_reversal: false}
     strike: atm
-    sizing: {mode: budget, budget: 800, max_contracts: 5}
-    daily_goal: 300
-    max_daily_loss: 200
+    start_time: "09:35"
+    end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
+    daily_goal: 600
+    max_daily_loss: 300
 
   - name: META
     symbol: META
-    triggers: [vwap_cross, ema50_cross, orb, zone_reaction, structure_break, fib_pullback]
+    triggers: [smc_retrace]
+    sizing: {mode: risk, risk: 300, max_contracts: 10}
+    exits: {measure: structure, max_hold_minutes: 120, exit_on_reversal: false}
     strike: atm
-    sizing: {mode: budget, budget: 800, max_contracts: 5}
-    daily_goal: 300
-    max_daily_loss: 200
+    start_time: "09:35"
+    end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
+    daily_goal: 600
+    max_daily_loss: 300
 
   - name: AMZN
     symbol: AMZN
-    triggers: [vwap_cross, ema50_cross, orb, zone_reaction, structure_break, fib_pullback]
+    triggers: [smc_retrace]
+    sizing: {mode: risk, risk: 300, max_contracts: 10}
+    exits: {measure: structure, max_hold_minutes: 120, exit_on_reversal: false}
     strike: atm
-    sizing: {mode: budget, budget: 800, max_contracts: 5}
-    daily_goal: 300
-    max_daily_loss: 200
+    start_time: "09:35"
+    end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
+    daily_goal: 600
+    max_daily_loss: 300
 
   - name: AMD
     symbol: AMD
-    triggers: [vwap_cross, ema50_cross, orb, zone_reaction, structure_break, fib_pullback]
+    triggers: [smc_retrace]
+    sizing: {mode: risk, risk: 300, max_contracts: 10}
+    exits: {measure: structure, max_hold_minutes: 120, exit_on_reversal: false}
     strike: atm
-    sizing: {mode: budget, budget: 800, max_contracts: 5}
-    daily_goal: 300
-    max_daily_loss: 200
+    start_time: "09:35"
+    end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
+    daily_goal: 600
+    max_daily_loss: 300
 
   - name: MSFT
     symbol: MSFT
-    triggers: [vwap_cross, ema50_cross, orb, zone_reaction, structure_break, fib_pullback]
+    triggers: [smc_retrace]
+    sizing: {mode: risk, risk: 300, max_contracts: 10}
+    exits: {measure: structure, max_hold_minutes: 120, exit_on_reversal: false}
     strike: atm
-    sizing: {mode: budget, budget: 800, max_contracts: 5}
-    daily_goal: 300
-    max_daily_loss: 200
+    start_time: "09:35"
+    end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
+    daily_goal: 600
+    max_daily_loss: 300

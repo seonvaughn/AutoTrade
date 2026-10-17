@@ -84,9 +84,15 @@ class PositionSizerBot(Bot):
             qty = s.contracts
         elif s.mode == "budget":
             qty = s.budget / unit
+        elif w.exits.measure == "structure" and e.signal.stop is not None and e.quote.delta:
+            # risk: lose about `risk` dollars if the underlying reaches the chart stop (delta approximation)
+            per = abs(e.signal.close - e.signal.stop) * abs(e.quote.delta) * c.multiplier
+            qty = s.risk / per if per > 0 else 0
         else:  # risk: lose `risk` dollars if the stop is hit
             qty = s.risk / (unit * w.exits.stop_loss_pct / 100.0)
-        qty = round_qty(c, min(qty, s.max_contracts))
+        news = self.bot("news_calendar")
+        factor, why = news.size_factor(e.ts.date()) if news else (1.0, "")
+        qty = round_qty(c, min(qty * factor, s.max_contracts))
         if qty <= 0 or (c.kind == "option" and qty < 1):
             self.emit(ContractRejected(e.ts, e.worker, e.signal, f"size rounds to 0 at ${e.quote.ask:.2f}"))
             return
@@ -103,6 +109,7 @@ class RiskManagerBot(Bot):
         self.problems: dict[str, str] = {}     # health source -> reason
         self.clocked_out: set[str] = set()
         self.exposure: dict[str, float] = {}   # worker -> premium at risk (open + pending)
+        self.entries_today = 0
         self.on(OrderIntent, self.on_intent)
         self.on(KillSwitch, lambda e: setattr(self, "kill", e.engaged))
         self.on(HealthStatus, self.on_health)
@@ -119,6 +126,7 @@ class RiskManagerBot(Bot):
     def on_session(self, e: SessionEvent) -> None:
         if e.kind is SessionKind.NEW_DAY:
             self.clocked_out.clear()
+            self.entries_today = 0
 
     def on_health(self, e: HealthStatus) -> None:
         if e.ok:
@@ -139,6 +147,7 @@ class RiskManagerBot(Bot):
             self.emit(OrderRejected(o.ts, o, reason))
         else:
             self.exposure[o.worker] = o.qty * o.limit * o.contract.multiplier
+            self.entries_today += 1
             self.emit(OrderApproved(o.ts, o))
 
     async def _check(self, o: OrderIntent) -> str | None:
@@ -154,6 +163,8 @@ class RiskManagerBot(Bot):
             return "market closed or past entry cutoff"
         if o.worker in self.clocked_out:
             return "worker clocked out"
+        if r.max_trades_per_day and self.entries_today >= r.max_trades_per_day:
+            return f"account took its {r.max_trades_per_day} trades today (Day 13: 1-3 setups a day)"
         if len(self.exposure) >= r.max_open_positions:
             return f"max {r.max_open_positions} open positions"
         if sum(self.exposure.values()) + cost > r.max_premium_exposure:

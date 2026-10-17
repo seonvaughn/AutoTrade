@@ -12,11 +12,14 @@ from .signal_filter_bot import LONG_ONLY
 
 TRIGGER_LABEL = {"vwap_cross": "VWAP", "ema50_cross": "EMA50", "orb": "opening range",
                  "zone_reaction": "supply/demand zone", "structure_break": "5m structure break",
-                 "fib_pullback": "Fibonacci pullback"}
+                 "fib_pullback": "Fibonacci pullback", "smc_retrace": "TJR sweep + break + retrace",
+                 "smc_bos": "TJR sweep + break"}
 
 WHY = {"vwap_cross": "VWAP cross", "ema50_cross": "EMA50 cross", "orb": "range breakout",
        "zone_reaction": "bounce off a supply/demand zone", "structure_break": "5m break of structure",
-       "fib_pullback": "Fibonacci pullback in the 15m trend"}
+       "fib_pullback": "Fibonacci pullback in the 15m trend",
+       "smc_retrace": "liquidity sweep, break of structure, retrace into an order block / gap, lower-timeframe break",
+       "smc_bos": "liquidity sweep then break of structure"}
 
 
 def money(x: float) -> str:

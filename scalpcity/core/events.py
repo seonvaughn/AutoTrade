@@ -93,6 +93,30 @@ class BarClosed(Event):
 
 
 @dataclass
+class BreakOfStructure(Event):
+    """TJR's rule: a candle BODY closed beyond the most recent high (bullish, CALL) or low (bearish, PUT).
+    `shift` is True when it flips the trend on that timeframe."""
+    symbol: str
+    tf: str
+    side: "Side"
+    level: float
+    candle: Candle
+    shift: bool
+    backfill: bool = False
+
+
+@dataclass
+class LiquiditySweep(Event):
+    """Price traded through a resting high ("high": buy-side liquidity) or low ("low": sell-side)."""
+    symbol: str
+    tf: str
+    kind: str
+    level: float
+    candle: Candle
+    backfill: bool = False
+
+
+@dataclass
 class StructureBreak(Event):
     """Price closed beyond the last swing high (bullish, side=CALL) or swing low (bearish, PUT)."""
     symbol: str
@@ -220,6 +244,11 @@ class Signal(Event):
     ema50: Optional[float] = None
     vwap: Optional[float] = None
     backfill: bool = False  # fired on history (warm-up): studied by the edge tracker, never traded
+    # TJR entry models plan the trade on the chart: stop beyond the swept high/low, target at the next
+    # resting liquidity (underlying prices). None for the indicator triggers.
+    stop: Optional[float] = None
+    target: Optional[float] = None
+    setup: Optional[dict] = None    # what the chart showed (sweep, break, order block / gap, equilibrium)
 
 
 @dataclass

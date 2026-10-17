@@ -320,7 +320,8 @@ function renderLeft(s) {
 }
 
 const TRIGGER = { vwap_cross: "VWAP cross", ema50_cross: "EMA50 cross", orb: "15-min range break",
-  zone_reaction: "Supply/demand zone (30s)", structure_break: "Structure break (5m)", fib_pullback: "Fib pullback (1m)" };
+  zone_reaction: "Supply/demand zone (30s)", structure_break: "Structure break (5m)", fib_pullback: "Fib pullback (1m)",
+  smc_retrace: "TJR: sweep → break → retrace → break", smc_bos: "TJR: sweep → break" };
 
 function renderRight(s) {
   const w = s.workers.find((x) => x.name === store.selected) || s.workers[0];
@@ -734,6 +735,22 @@ function crewCards(names) {
 
 const TRIG_NAME = TRIGGER;
 
+function tjrBlock(t) {
+  if (!t || !t.bias) return "";
+  const tone = (x) => (x === "bullish" ? "pos" : x === "bearish" ? "neg" : "dim");
+  const cells = Object.entries({ weekly: t.bias.W, daily: t.bias.D, "4 hour": t.bias["4h"], ...Object.fromEntries(
+    Object.entries(t.structure || {}).map(([tf, v]) => [tf, v])) }).map(([k, v]) =>
+    `<td class="${tone(v)}"><small class="dim">${k}</small><br><b>${v || "unknown"}</b></td>`).join("");
+  const rng = t.daily_range ? `daily equilibrium ${px(t.daily_range.eq)} (range ${px(t.daily_range.bottom)} – ${px(t.daily_range.top)})` : "daily range not known yet";
+  const setups = (t.setups || []).map((x) => `<tr><td>${x.tf}</td><td class="${x.side === "CALL" ? "pos" : "neg"}">${x.side === "CALL" ? "▲ long" : "▼ short"}</td>
+    <td>${x.sweep ? `swept ${x.sweep.tf} ${px(x.sweep.level)}` : "no sweep"}</td><td>${x.armed ? `in ${esc((x.poi || []).join(", "))}, waiting for the break` : "waiting for the retrace"}</td><td class="mono">stop ${px(x.stop)}</td></tr>`).join("");
+  return `<h2 style="margin-top:16px">TJR read · daily bias first</h2>
+    <table><tbody><tr>${cells}</tr></tbody></table>
+    <div class="dim" style="margin:6px 0">${rng}${t.news_today ? ` · <b class="neg">${esc(t.news_today)}</b>` : ""}</div>
+    ${setups ? `<table><thead><tr><th>setup</th><th>side</th><th>sweep</th><th>stage</th><th></th></tr></thead><tbody>${setups}</tbody></table>` : `<div class="empty">No sweep-and-break setup open right now.</div>`}
+    ${(t.news_week || []).length ? `<div class="dim" style="margin-top:6px">News this week: ${t.news_week.map(esc).join(" · ")}</div>` : ""}`;
+}
+
 function researchFloor(w, s) {
   const r = w.research || { edges: [], vetoes: [], cleared: [] };
   const cfg = s.research || {};
@@ -762,11 +779,14 @@ function researchFloor(w, s) {
     <td>${d.ok ? `<b class="pos">cleared</b> <span class="dim">${d.edge ? `won ${d.edge.wins}/${d.edge.n}, ${d.edge.avg_r >= 0 ? "+" : ""}${d.edge.avg_r.toFixed(2)}R` : "gate off"}${d.next ? ` · ${d.next.room_atr} ATR to ${esc(d.next.label)}` : ""}</span>`
       : `<b class="neg">vetoed</b> <span class="dim">${esc(d.reason)}</span>`}</td></tr>`).join("");
   return `<h2>Research room · evidence before every trade</h2>
-    <p class="dim" style="margin:0 0 12px">${r.gate
+    <p class="dim" style="margin:0 0 12px">${r.gate && w.triggers.some((t) => t.startsWith("smc"))
+      ? `TJR's plan, step by step: the daily bias must agree; no CPI/PPI/FOMC/NFP days; a sweep of resting liquidity, then a candle body closing beyond the latest high or low; a retrace into an order block or fair value gap in the discount (longs) or premium (shorts) half; then a break one timeframe lower. Stop beyond the swept high/low, target the next resting liquidity at least ${cfg.min_rr || 1}:1 away. The setup also needs a record: over the last ${cfg.lookback_days} sessions, at least ${cfg.min_samples} past setups the plan would have taken (all tickers together) averaging above ${cfg.min_avg_r}R. No evidence, no trade.`
+      : r.gate
       ? `Every entry needs a trigger proven on ${esc(w.symbol)} over the last ${cfg.lookback_days} sessions (at least ${cfg.min_samples} past signals, ${Math.round(cfg.min_win_rate * 100)}%+ reaching ${cfg.target_atr} ATR before ${cfg.stop_atr} ATR against, average above ${cfg.min_avg_r}R) and ${cfg.min_room_atr}+ ATR of room before the next marked level or opposing zone, and no ${(cfg.align_timeframes || []).join(" / ")} trend pointing the other way. No evidence, no trade.`
       : "The research gate is off for this tower: entries are not checked against past sessions."}</p>
     <h2>Trigger track record</h2>
     ${edgeRows ? `<table><thead><tr><th>trigger</th><th class="r">signals</th><th class="r">won / lost / timed out</th><th class="r">win</th><th class="r">avg</th><th>status</th></tr></thead><tbody>${edgeRows}</tbody></table>` : `<div class="empty">Still studying past sessions.</div>`}
+    ${tjrBlock(study.tjr)}
     <h2 style="margin-top:16px">Chart study</h2>
     ${trendCells ? `<table><tbody><tr>${trendCells}</tr></tbody></table>` : `<div class="empty">Reading the charts…</div>`}
     <p class="dim" style="margin:8px 0">${esc(fibLine)}</p>

@@ -80,12 +80,17 @@ class HistoricalOptionBars:
         self.mem[k] = bars
         return bars
 
-    def price_at(self, contract: OptionContract, ts: datetime) -> Optional[float]:
-        """Close of the last option bar fully completed at ts (None if it never traded yet)."""
+    def last_bar(self, contract: OptionContract, ts: datetime) -> Optional[Candle]:
+        """The last option bar fully completed at ts (None if it hasn't traded yet today).
+        Thin contracts can go minutes without a trade, so the caller must account for its age."""
         last = None
         for b in self.bars(contract, ts.date()):
             if (ts - b.start).total_seconds() >= 60:
-                last = b.close
+                last = b
             else:
                 break
         return last
+
+    def price_at(self, contract: OptionContract, ts: datetime) -> Optional[float]:
+        b = self.last_bar(contract, ts)
+        return b.close if b else None

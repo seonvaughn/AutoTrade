@@ -164,3 +164,23 @@ def test_history_is_scored_in_order_not_as_empty_timeouts():
     assert len(rows) > 20
     decided = [r for r in rows if r[2] in ("win", "loss")]
     assert len(decided) > len(rows) / 2         # most past signals reach target or stop within 20 min
+
+
+def test_backtest_never_buys_at_a_stale_option_price():
+    # regression: the last option trade was used as-is, so a signal fired after a stock move could
+    # "buy" at the price from before the move (a fake +$41k backtest). It must be moved by delta.
+    from scalpcity.core.events import Candle as C, OptionContract
+    o = system(enabled=False)
+    sim = o.ctx.bots["options_chain"].sim
+    contract = OptionContract("QQQ", D3, 100.0, Side.CALL)
+
+    class Bars:  # one trade at 10:00 for 2.00, nothing since
+        def last_bar(self, c, ts):
+            return C(c.occ, cal.at(D3, "10:00"), 2.0, 2.0, 2.0, 2.0, 1)
+    sim.hist = Bars()
+    sim.on_spot("QQQ", cal.at(D3, "10:00") + timedelta(seconds=50), 100.0)   # stock when the option traded
+    sim.on_spot("QQQ", cal.at(D3, "10:07"), 101.0)                            # stock now, $1 higher
+    call = sim.quote(contract, cal.at(D3, "10:07"))
+    put = sim.quote(OptionContract("QQQ", D3, 100.0, Side.PUT), cal.at(D3, "10:07"))
+    assert call.mid > 2.4                    # ~2.00 + ~0.6 delta * $1, not the stale 2.00
+    assert put.mid < 1.9                     # puts move the other way (delta about -0.17 here)

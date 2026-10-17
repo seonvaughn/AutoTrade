@@ -222,6 +222,10 @@ fewer trades, and judge it by backtests over many weeks, not one day.
 
 - **Backtest option prices** are modeled with Black-Scholes and a fixed IV per symbol, unless you
   turn on real option bars. Real 0DTE IV changes through the day, so modeled P&L is approximate.
+  With real option bars, each price is the contract's last trade moved by delta for what the stock
+  did since. (An earlier version used the last trade as-is; thin contracts made that a free lunch,
+  and a losing strategy backtested at +$41k with no losing days. If a backtest ever looks that
+  good, assume a bug and compare with `use_historical_option_bars: false`.)
 - **Replay detail**: replay walks each 1-minute bar along a smooth open→low→high→close path. Real
   intra-minute moves are choppier, so stops and targets fill a bit worse live.
 - **Mid-session start** in paper/live backfills today's candles via REST, so VWAP and the range

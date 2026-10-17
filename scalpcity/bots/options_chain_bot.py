@@ -24,6 +24,7 @@ class SimChain:
     def __init__(self, cfg) -> None:
         self.cfg = cfg
         self.spot: dict[str, float] = {}
+        self.spot_by_minute: dict[str, dict[datetime, float]] = {}  # last price seen in each minute
         self.hist = None
         if cfg.sim.use_historical_option_bars and not cal.is_crypto() and cfg.data.source != "synthetic":
             from ..data.option_bars import HistoricalOptionBars
@@ -51,7 +52,7 @@ class SimChain:
         is_call = c.right is Side.CALL
         mid = None
         if self.hist:
-            mid = self.hist.price_at(c, ts)
+            mid = self._from_last_trade(c, ts, spot, minutes, iv, is_call)
         if mid is None:
             mid = bs_price(spot, c.strike, minutes, iv, is_call) if minutes > 0 else \
                 max(0.0, spot - c.strike if is_call else c.strike - spot)
@@ -60,6 +61,29 @@ class SimChain:
         ask = round_tick(mid + half)
         delta = bs_delta(spot, c.strike, max(minutes, 1), iv, is_call)
         return OptionQuote(ts, c, bid, ask, delta, iv, spot)
+
+    def on_spot(self, symbol: str, ts: datetime, price: float) -> None:
+        self.spot[symbol] = price
+        per = self.spot_by_minute.setdefault(symbol, {})
+        per[ts.replace(second=0, microsecond=0)] = price
+        if len(per) > 600:
+            for k in sorted(per)[:200]:
+                del per[k]
+
+    def _from_last_trade(self, c, ts, spot, minutes, iv, is_call) -> Optional[float]:
+        """Real option price from its last trade, moved by delta for what the stock did since.
+
+        Using a stale last trade as-is lets a backtest buy at a price from before the move that
+        fired the signal; that once turned a losing strategy into a fake +$41k. So the last trade
+        is only an anchor: price = last trade + delta * (stock now - stock when it traded)."""
+        bar = self.hist.last_bar(c, ts)
+        if bar is None:
+            return None
+        then = self.spot_by_minute.get(c.underlying, {}).get(bar.start)
+        if then is None:
+            return None  # can't tell how stale it is: use the model price instead
+        delta = bs_delta(spot, c.strike, max(minutes, 1), iv, is_call)
+        return max(0.01, bar.close + delta * (spot - then))
 
     def chain(self, underlying: str, expiry: date, right: Side, ts: datetime) -> list[OptionQuote]:
         spot = self.spot.get(underlying)
@@ -104,7 +128,7 @@ class OptionsChainBot(Bot):
         self.last_ts = t.ts
         if not self.sim:
             return
-        self.sim.spot[t.symbol] = t.price
+        self.sim.on_spot(t.symbol, t.ts, t.price)
         for c in self.watched.values():
             if c.underlying == t.symbol:
                 q = self.sim.quote(c, t.ts)

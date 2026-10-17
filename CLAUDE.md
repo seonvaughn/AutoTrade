@@ -68,6 +68,11 @@ To see the city working, use the `run-scalpcity` skill (`.claude/skills/run-scal
   emits `EntryVetoed` with a reason otherwise. Signals fired on history carry `backfill=True`: the
   edge tracker studies them, while the filter and exit manager ignore them. Mechanics tests turn the
   gate off in `make_cfg()`; research behaviour is tested in `tests/test_research.py`.
+- **Never price a backtest fill from a stale option trade.** `SimChain._from_last_trade` moves the
+  last real trade by delta × the stock's move since that trade. Using the last trade as-is let the
+  bots "buy" at prices from before the move that fired the signal: a losing strategy showed
+  +$41k with zero drawdown. Results that look too good (no red days, ~0 drawdown, 80%+ wins) are a
+  bug until proven otherwise: compare against `use_historical_option_bars: false`.
 - **History must be delivered candle by candle** (`PriceFeedBot._history`: emit, then drain, per
   candle). Queuing all history first and draining once made every past signal see only later
   days, and the edge tracker scored them all as 0R timeouts. Anything time-ordered depends on this.
@@ -129,8 +134,8 @@ To see the city working, use the `run-scalpcity` skill (`.claude/skills/run-scal
   selection, Alpaca historical source, walkable city (robots, building interiors, Vault), phone
   access token, macOS certificate fix, double-click launchers (`Start … City.command`), research
   bots (key levels, edge tracker, research gate) with a Research room in every tower.
-- One real-data day (2026-10-15, after studying 10-08..10-14) with the gate on: 15 trades on SPY,
-  META, AMZN, IWM, +$1,418; every QQQ/TSLA/AAPL/MSFT trigger was vetoed for a losing record. One day
-  proves nothing.
+- **Backtest results before 2026-10-17 that used real option bars are invalid** (stale-price bug,
+  below), including a +$41,310 / 88.7% win / 32-of-32 green run for 2026-09-01..10-15 and a +$1,418
+  single day. With model prices the same gated run was −$5,615, 40.8% wins, profit factor 0.53.
 - Open: a full options backtest on real data has not finished yet (stopped at the 2-hour cloud
   limit). Run `backtest --start 2026-09-01 --end 2026-10-15 --source alpaca` first, then longer.

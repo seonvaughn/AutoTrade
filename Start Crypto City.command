@@ -1,6 +1,6 @@
 #!/bin/bash
 # Double-click in Finder to start the crypto bots (Alpaca paper) and open the city.
-# Keep the Terminal window open while they run. Close it, or press Control-C, to stop them;
+# Keeps the Mac awake while they run (closing the lid still sleeps it). Keep this window open. Close it, or press Control-C, to stop them;
 # they close any open trade first.
 cd "$(dirname "$0")" || exit 1
 if [ ! -d .venv ] || [ ! -f .env ]; then
@@ -11,5 +11,5 @@ source .venv/bin/activate
 set -a; source .env; set +a
 echo "Starting the crypto bots. The city opens in your browser in a few seconds: http://127.0.0.1:8766"
 (sleep 8; open "http://127.0.0.1:8766") &
-python -m scalpcity --config config.crypto.yaml paper
+caffeinate -i python -m scalpcity --config config.crypto.yaml paper
 read -r -p "The bots stopped. Press Return to close this window." _

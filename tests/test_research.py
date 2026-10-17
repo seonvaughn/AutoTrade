@@ -184,3 +184,42 @@ def test_backtest_never_buys_at_a_stale_option_price():
     put = sim.quote(OptionContract("QQQ", D3, 100.0, Side.PUT), cal.at(D3, "10:07"))
     assert call.mid > 2.4                    # ~2.00 + ~0.6 delta * $1, not the stale 2.00
     assert put.mid < 1.9                     # puts move the other way (delta about -0.17 here)
+
+
+# ---------------------------------------------------------------- exits measured on the stock
+def _underlying_exits(side=Side.CALL, measure="underlying"):
+    from scalpcity.core.events import OptionContract, OrderIntent, Purpose
+    o = system(enabled=False)
+    x = o.cfg.worker("QQQ OG").exits
+    x.measure, x.stop_atr, x.target_atr, x.max_hold_minutes = measure, 0.7, 1.0, 20
+    exits = []
+    o.bus.subscribe(OrderIntent, lambda e: e.purpose is Purpose.EXIT and exits.append(e), "t")
+    sig = Signal(cal.at(D3, "10:00"), "QQQ", "vwap_cross", side, 100.0, 99.9, 1.0)
+    asyncio.run(o.bus.emit(PositionOpened(sig.ts, "QQQ OG", OptionContract("QQQ", D3, 100.0, side), 2, 3.0, sig)))
+    return o, exits
+
+
+def test_underlying_exits_stop_target_and_time():
+    from scalpcity.core.events import Heartbeat, Tick
+    o, exits = _underlying_exits()
+    asyncio.run(o.bus.emit(Tick(cal.at(D3, "10:01"), "QQQ", 99.5, 1)))     # -0.5 ATR: hold
+    assert exits == []
+    asyncio.run(o.bus.emit(Tick(cal.at(D3, "10:02"), "QQQ", 99.25, 1)))    # -0.75 ATR: stop
+    assert [e.reason for e in exits] == ["stop"]
+
+    o, exits = _underlying_exits(side=Side.PUT)
+    asyncio.run(o.bus.emit(Tick(cal.at(D3, "10:01"), "QQQ", 98.9, 1)))     # +1.1 ATR for a put: target
+    assert [e.reason for e in exits] == ["target"]
+
+    o, exits = _underlying_exits()
+    from types import SimpleNamespace
+    o.ctx.bots["exit_manager"].pos["QQQ OG"]["quote"] = SimpleNamespace(bid=3.0)  # the clock is what's checked
+    asyncio.run(o.bus.emit(Heartbeat(cal.at(D3, "10:21"))))
+    assert [e.reason for e in exits] == ["time"]
+
+
+def test_premium_mode_does_not_track_the_stock():
+    o, _ = _underlying_exits(measure="premium")
+    assert o.ctx.bots["exit_manager"].pos["QQQ OG"]["under"] is None      # exits come from option quotes only
+    o, _ = _underlying_exits(measure="underlying")
+    assert o.ctx.bots["exit_manager"].pos["QQQ OG"]["under"]["entry"] == 100.0

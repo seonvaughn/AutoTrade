@@ -8,7 +8,7 @@ from ..core import calendar as cal
 from ..core.costs import QTY_EPS, fees
 from ..core.events import (Alert, Fill, Heartbeat, HealthStatus, KillSwitch, OptionQuote, OrderApproved, OrderFailed,
                            OrderIntent, OrderRejected, OrderSide, PositionOpened, Purpose, SessionEvent, SessionKind,
-                           Signal, TradeClosed)
+                           Side, Signal, Tick, TradeClosed)
 from .base import Bot
 
 
@@ -107,14 +107,19 @@ class ExitManagerBot(Bot):
         self.on(OrderFailed, self.on_not_done)
         self.on(OrderRejected, self.on_not_done)
         self.on(OptionQuote, self.on_quote)
+        self.on(Tick, self.on_tick)
         self.on(Heartbeat, self.on_heartbeat)
         self.on(Signal, self.on_signal)
         self.on(SessionEvent, self.on_session)
         self.on(KillSwitch, lambda e: e.engaged and self.exit_all("kill", e.ts))
 
     def on_opened(self, e: PositionOpened) -> None:
-        self.pos[e.worker] = {"contract": e.contract, "qty": e.qty, "entry": e.entry_price, "opened": e.ts,
-                              "peak": 0.0, "exiting": False, "quote": None}
+        p = self.pos[e.worker] = {"contract": e.contract, "qty": e.qty, "entry": e.entry_price, "opened": e.ts,
+                                  "peak": 0.0, "exiting": False, "quote": None, "under": None}
+        s = e.signal
+        if self.cfg.worker(e.worker).exits.measure == "underlying" and s and s.atr:
+            p["under"] = {"symbol": s.symbol, "entry": s.close, "atr": s.atr,
+                          "way": 1 if s.side is Side.CALL else -1}
 
     def on_fill(self, e: Fill) -> None:
         p = self.pos.get(e.intent.worker)
@@ -138,10 +143,25 @@ class ExitManagerBot(Bot):
             if p["quote"] is not None:
                 self.evaluate(worker, p, hb.ts)
 
+    def on_tick(self, t: Tick) -> None:
+        for worker, p in list(self.pos.items()):
+            u = p["under"]
+            if u and u["symbol"] == t.symbol and not p["exiting"] and p["qty"] > QTY_EPS:
+                x = self.cfg.worker(worker).exits
+                move = u["way"] * (t.price - u["entry"]) / u["atr"]
+                if move <= -x.stop_atr:
+                    self.exit(worker, "stop", t.ts)
+                elif move >= x.target_atr:
+                    self.exit(worker, "target", t.ts)
+
     def evaluate(self, worker: str, p: dict, ts: datetime) -> None:
         if p["exiting"] or p["quote"] is None or p["qty"] <= QTY_EPS:
             return
         x = self.cfg.worker(worker).exits
+        if p["under"]:  # stop and target are measured on the stock (on_tick); only the clock is checked here
+            if ts - p["opened"] >= timedelta(minutes=x.max_hold_minutes):
+                self.exit(worker, "time", ts)
+            return
         gain = (p["quote"].bid - p["entry"]) / p["entry"] * 100
         p["peak"] = max(p["peak"], gain)
         reason = None

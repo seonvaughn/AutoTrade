@@ -22,6 +22,12 @@ class ExitRules:
     trail_lock_ratio: float = 0.6     # ... keep at least 60% of the best gain seen
     max_hold_minutes: float = 20.0
     exit_on_reversal: bool = True     # opposite signal closes the trade
+    # premium: stop / target / profit lock on the option's price (the % above).
+    # underlying: stop / target on the stock's move since the entry signal, in 1-minute ATRs: the same
+    # yardstick the research gate scores triggers with. Profit lock is off in this mode.
+    measure: str = "premium"
+    stop_atr: float = 0.7
+    target_atr: float = 1.0
 
 
 @dataclass
@@ -204,6 +210,8 @@ def validate(cfg: Config) -> None:
             raise ValueError(f"{w.name}: unknown triggers {sorted(bad)}")
         if w.dte < 0:
             raise ValueError(f"{w.name}: dte must be >= 0")
+        if w.exits.measure not in {"premium", "underlying"}:
+            raise ValueError(f"{w.name}: exits.measure must be premium|underlying")
         if w.sizing.mode not in {"fixed", "budget", "risk"}:
             raise ValueError(f"{w.name}: sizing.mode must be fixed|budget|risk")
         if not (w.strike in {"atm", "otm1", "itm1"} or w.strike.startswith("delta:")):

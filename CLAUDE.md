@@ -137,5 +137,12 @@ To see the city working, use the `run-scalpcity` skill (`.claude/skills/run-scal
 - **Backtest results before 2026-10-17 that used real option bars are invalid** (stale-price bug,
   below), including a +$41,310 / 88.7% win / 32-of-32 green run for 2026-09-01..10-15 and a +$1,418
   single day. With model prices the same gated run was −$5,615, 40.8% wins, profit factor 0.53.
+- **Corrected baseline (2026-09-01..10-15, real option bars with the stale-price fix, research gate
+  on, config.yaml as shipped):** −$5,620, 234 trades, 38.9% wins, profit factor 0.43, 2 green /
+  16 red / 14 flat days. Exits: 92 stops (−$8,324), 21 targets (+$2,508), 73 profit locks
+  (+$1,708), 48 reversals (−$1,512). The gate scores edge with ATR-based stops/targets on the stock,
+  but positions exit on −10%/+12% of option premium, which 0DTE noise hits fast: aligning the
+  exits with what the gate measured is the obvious next experiment. 790 entries were blocked by
+  the PDT guard once the $30k sim account fell below $25k.
 - Open: a full options backtest on real data has not finished yet (stopped at the 2-hour cloud
   limit). Run `backtest --start 2026-09-01 --end 2026-10-15 --source alpaca` first, then longer.

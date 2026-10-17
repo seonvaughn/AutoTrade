@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta
 
 from .bots.base import Context
 from .bots.candle_bot import CandleBot
+from .bots.chart_bots import HigherTimeframeBot, StructureBot, TimeframeBot, ZonesBot
 from .bots.clock_bot import ClockBot
 from .bots.decision_bots import ContractSelectorBot, DailyGoalBot, PositionSizerBot, RiskManagerBot
 from .bots.execution_bots import ExecutionBot, ExitManagerBot, ReconciliationBot
@@ -21,7 +22,8 @@ from .bots.options_chain_bot import OptionsChainBot
 from .bots.price_feed_bot import PriceFeedBot
 from .bots.record_bots import AnalystBot, JournalBot, LedgerBot
 from .bots.research_bots import EdgeTrackerBot, KeyLevelsBot, ResearchGateBot
-from .bots.signal_bots import EMACrossBot, ORBBot, VWAPCrossBot
+from .bots.signal_bots import (EMACrossBot, FibPullbackBot, ORBBot, StructureBreakBot, VWAPCrossBot,
+                               ZoneReactionBot)
 from .bots.signal_filter_bot import SignalFilterBot
 from .core import calendar as cal
 from .core.bus import EventBus
@@ -32,9 +34,9 @@ from .core.storage import Storage
 log = logging.getLogger("scalpcity.orchestrator")
 
 BOT_ORDER = [
-    ClockBot, HealthBot, CandleBot, OptionsChainBot,
-    ATRBot, VWAPBot, EMABot, OpeningRangeBot, KeyLevelsBot,
-    VWAPCrossBot, EMACrossBot, ORBBot, EdgeTrackerBot,
+    ClockBot, HealthBot, CandleBot, TimeframeBot, OptionsChainBot,
+    ATRBot, VWAPBot, EMABot, OpeningRangeBot, KeyLevelsBot, HigherTimeframeBot, StructureBot, ZonesBot,
+    VWAPCrossBot, EMACrossBot, ORBBot, ZoneReactionBot, StructureBreakBot, FibPullbackBot, EdgeTrackerBot,
     SignalFilterBot, ResearchGateBot, ContractSelectorBot, PositionSizerBot, RiskManagerBot, ExecutionBot,
     LedgerBot, ExitManagerBot, DailyGoalBot, ReconciliationBot,
     JournalBot, AnalystBot, AlertBot,
@@ -90,6 +92,8 @@ class Orchestrator:
 
     # ---------------------------------------------------------------- replay / backtest
     async def replay(self, days: list[date], pace: float = 0.0) -> dict:
+        if days:
+            self.ctx.span = (days[0], days[-1])
         await self.start()
         try:
             await self.feed.replay(days, pace)

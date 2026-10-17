@@ -30,8 +30,12 @@ LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 
 # Which crew bots work for a worker (shown inside its building), by trigger.
 TRIGGER_BOTS = {"vwap_cross": ["vwap", "sig_vwap_cross"], "ema50_cross": ["ema50", "sig_ema50_cross"],
-                "orb": ["opening_range", "sig_orb"]}
-SHARED_CREW = ["price_feed", "candles", "atr", "key_levels", "edge_tracker", "research_gate",
+                "orb": ["opening_range", "sig_orb"], "zone_reaction": ["zones", "sig_zone_reaction"],
+                "structure_break": ["structure", "sig_structure_break"],
+                "fib_pullback": ["structure", "sig_fib_pullback"]}
+STUDY_TIMEFRAMES = ["5m", "15m", "30m", "1h", "D", "W"]
+SHARED_CREW = ["price_feed", "candles", "timeframes", "atr", "key_levels", "htf_levels", "edge_tracker",
+               "research_gate",
                "signal_filter", "contract_selector", "position_sizer",
                "risk_manager", "execution", "exit_manager", "ledger", "daily_goal", "journal"]
 
@@ -269,7 +273,7 @@ class DashboardBot(Bot):
         st = self.stats[w.name]
         if pos:
             pos = {**pos, "pnl": round((pos["mark"] - pos["entry"]) * pos["qty"] * pos["mult"], 2)}
-        crew = [b for t in w.triggers for b in TRIGGER_BOTS.get(t, [])] + SHARED_CREW
+        crew = list(dict.fromkeys([b for t in w.triggers for b in TRIGGER_BOTS.get(t, [])] + SHARED_CREW))
         edge_bot = self.bot("edge_tracker")
         today = self.day or (self.clock.date() if self.clock else None)
         edges = [edge_bot.stats(w.symbol, t, today) for t in w.triggers] if edge_bot and today else []
@@ -284,6 +288,23 @@ class DashboardBot(Bot):
                              "sizing": vars(w.sizing), "exits": vars(w.exits), "cooldown": w.cooldown_minutes,
                              "max_trades": w.max_trades_per_day, "trend_filter": w.trend_filter,
                              "min_close_beyond_atr": w.min_close_beyond_atr}}
+
+    def analysis(self) -> dict:
+        """Per symbol: trend on each timeframe, supply/demand zones, the 15m Fibonacci leg, daily levels."""
+        st, zb, htf = self.bot("structure"), self.bot("zones"), self.bot("htf_levels")
+        day = self.day or (self.clock.date() if self.clock else None)
+        out = {}
+        for sym in self.cfg.symbols:
+            fib = st.fib(sym, "15m") if st else None
+            study = htf.study(sym, day) if htf and day else {"levels": []}
+            out[sym] = {
+                "trend": {tf: st.trend(sym, tf, day) for tf in STUDY_TIMEFRAMES} if st else {},
+                "zones": [{k: z[k] for k in ("kind", "tf", "lo", "hi", "touches")} for z in zb.zones(sym)] if zb else [],
+                "fib": {"direction": fib["direction"], "from": fib["from"], "to": fib["to"],
+                        "levels": {str(k): v for k, v in fib["levels"].items()}} if fib else None,
+                "htf_levels": [{"price": lv.price, "label": lv.label} for lv in study["levels"]],
+            }
+        return out
 
     def crew(self) -> list[dict]:
         orch = self.bot("orchestrator")
@@ -311,6 +332,7 @@ class DashboardBot(Bot):
             "roster": [{"name": n, "skill": s} for n, s in orch.roster()] if orch else [],
             "crew": self.crew(),
             "levels": self.levels,
+            "analysis": self.analysis(),
             "research": vars(self.cfg.research),
         }
 

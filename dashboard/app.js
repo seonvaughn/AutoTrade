@@ -319,7 +319,8 @@ function renderLeft(s) {
   $("alerts").innerHTML = store.alerts.slice(0, 12).map((a) => `<li class="${a.level}">${a.t} ${esc(a.text)}</li>`).join("");
 }
 
-const TRIGGER = { vwap_cross: "VWAP cross", ema50_cross: "EMA50 cross", orb: "15-min range break" };
+const TRIGGER = { vwap_cross: "VWAP cross", ema50_cross: "EMA50 cross", orb: "15-min range break",
+  zone_reaction: "Supply/demand zone (30s)", structure_break: "Structure break (5m)", fib_pullback: "Fib pullback (1m)" };
 
 function renderRight(s) {
   const w = s.workers.find((x) => x.name === store.selected) || s.workers[0];
@@ -376,6 +377,15 @@ function drawChart(w, s, cv = $("chart"), count = 90) {
     let started = false;
     bars.forEach((b, i) => { if (b[k] == null) return; const x = i * step + step / 2; started ? g.lineTo(x, y(b[k])) : g.moveTo(x, y(b[k])); started = true; });
     g.stroke(); g.lineWidth = 1;
+  }
+  for (const z of ((s.analysis || {})[w.symbol] || {}).zones || []) {
+    if (z.hi < lo || z.lo > hi) continue;
+    const top = y(Math.min(z.hi, hi)), bot = y(Math.max(z.lo, lo));
+    g.fillStyle = z.kind === "demand" ? "rgba(38,255,160,.10)" : "rgba(255,45,111,.10)";
+    g.fillRect(0, top, W - 46, Math.max(2, bot - top));
+    g.fillStyle = z.kind === "demand" ? "rgba(38,255,160,.8)" : "rgba(255,45,111,.8)";
+    g.font = "10px sans-serif";
+    g.fillText(`${z.tf} ${z.kind}`, W - 120, top + 11);
   }
   for (const lv of (s.levels || {})[w.symbol] || []) {
     if (lv.price < lo || lv.price > hi) continue;
@@ -491,7 +501,9 @@ connect();
 const CREW_GROUPS = [
   { cat: "Data", color: COLORS.cyan, bots: ["price_feed", "candles", "options_chain", "clock"] },
   { cat: "Research", color: 0xf4f1ff, bots: ["key_levels", "edge_tracker", "research_gate"] },
-  { cat: "Indicators & signals", color: COLORS.gold, bots: ["atr", "vwap", "ema50", "opening_range", "sig_vwap_cross", "sig_ema50_cross", "sig_orb"] },
+  { cat: "Chart reading", color: 0x7cf3c8, bots: ["timeframes", "htf_levels", "structure", "zones"] },
+  { cat: "Indicators & signals", color: COLORS.gold, bots: ["atr", "vwap", "ema50", "opening_range", "sig_vwap_cross", "sig_ema50_cross", "sig_orb",
+    "sig_zone_reaction", "sig_structure_break", "sig_fib_pullback"] },
   { cat: "Decisions", color: COLORS.violet, bots: ["signal_filter", "contract_selector", "position_sizer", "risk_manager"] },
   { cat: "Execution", color: COLORS.CALL, bots: ["execution", "exit_manager", "reconciliation"] },
   { cat: "Records & ops", color: 0xff7ac8, bots: ["ledger", "daily_goal", "journal", "analyst", "health", "alerts", "dashboard", "orchestrator"] },
@@ -720,13 +732,22 @@ function crewCards(names) {
   }).join("")}</div>`;
 }
 
-const TRIG_NAME = { vwap_cross: "VWAP cross", ema50_cross: "EMA50 cross", orb: "15-min range break" };
+const TRIG_NAME = TRIGGER;
 
 function researchFloor(w, s) {
   const r = w.research || { edges: [], vetoes: [], cleared: [] };
   const cfg = s.research || {};
   const price = s.prices[w.symbol];
-  const levels = ((s.levels || {})[w.symbol] || []).slice().sort((a, b) => b.price - a.price);
+  const study = (s.analysis || {})[w.symbol] || {};
+  const levels = [...((s.levels || {})[w.symbol] || []), ...(study.htf_levels || [])].sort((a, b) => b.price - a.price);
+  const TF_NAME = { "5m": "5 min", "15m": "15 min", "30m": "30 min", "1h": "1 hour", D: "daily", W: "weekly" };
+  const trendCells = Object.entries(study.trend || {}).map(([tf, t]) =>
+    `<td class="${t === "bullish" ? "pos" : t === "bearish" ? "neg" : "dim"}"><small class="dim">${TF_NAME[tf] || tf}</small><br><b>${t}</b></td>`).join("");
+  const zoneRows = (study.zones || []).slice().sort((a, b) => b.hi - a.hi).map((z) =>
+    `<tr><td class="${z.kind === "demand" ? "pos" : "neg"}">${z.kind}</td><td>${z.tf}</td><td class="mono">${px(z.lo)} – ${px(z.hi)}</td><td class="r">${z.touches} touch${z.touches === 1 ? "" : "es"}</td></tr>`).join("");
+  const fib = study.fib;
+  const fibLine = fib ? `15 min ${fib.direction === "up" ? "up" : "down"}-leg ${px(fib.from)} → ${px(fib.to)}: 50% ${px(fib.levels["0.5"])} · 61.8% ${px(fib.levels["0.618"])} · 78.6% ${px(fib.levels["0.786"])}`
+    : "no clear 15 min swing yet";
   const edgeRows = r.edges.map((e) => `<tr><td>${TRIG_NAME[e.trigger] || esc(e.trigger)}</td><td class="r">${e.n}</td>
     <td class="r">${e.wins} / ${e.losses} / ${e.timeouts}</td><td class="r">${Math.round(e.win_rate * 100)}%</td>
     <td class="r ${cls(e.avg_r)}">${e.avg_r >= 0 ? "+" : ""}${e.avg_r.toFixed(2)}R</td>
@@ -742,10 +763,14 @@ function researchFloor(w, s) {
       : `<b class="neg">vetoed</b> <span class="dim">${esc(d.reason)}</span>`}</td></tr>`).join("");
   return `<h2>Research room · evidence before every trade</h2>
     <p class="dim" style="margin:0 0 12px">${r.gate
-      ? `Every entry needs a trigger proven on ${esc(w.symbol)} over the last ${cfg.lookback_days} sessions (at least ${cfg.min_samples} past signals, ${Math.round(cfg.min_win_rate * 100)}%+ reaching ${cfg.target_atr} ATR before ${cfg.stop_atr} ATR against, average above ${cfg.min_avg_r}R) and ${cfg.min_room_atr}+ ATR of room before the next marked level. No evidence, no trade.`
+      ? `Every entry needs a trigger proven on ${esc(w.symbol)} over the last ${cfg.lookback_days} sessions (at least ${cfg.min_samples} past signals, ${Math.round(cfg.min_win_rate * 100)}%+ reaching ${cfg.target_atr} ATR before ${cfg.stop_atr} ATR against, average above ${cfg.min_avg_r}R) and ${cfg.min_room_atr}+ ATR of room before the next marked level or opposing zone, and no ${(cfg.align_timeframes || []).join(" / ")} trend pointing the other way. No evidence, no trade.`
       : "The research gate is off for this tower: entries are not checked against past sessions."}</p>
     <h2>Trigger track record</h2>
     ${edgeRows ? `<table><thead><tr><th>trigger</th><th class="r">signals</th><th class="r">won / lost / timed out</th><th class="r">win</th><th class="r">avg</th><th>status</th></tr></thead><tbody>${edgeRows}</tbody></table>` : `<div class="empty">Still studying past sessions.</div>`}
+    <h2 style="margin-top:16px">Chart study</h2>
+    ${trendCells ? `<table><tbody><tr>${trendCells}</tr></tbody></table>` : `<div class="empty">Reading the charts…</div>`}
+    <p class="dim" style="margin:8px 0">${esc(fibLine)}</p>
+    ${zoneRows ? `<table><thead><tr><th>zone</th><th>timeframe</th><th>price</th><th class="r">tested</th></tr></thead><tbody>${zoneRows}</tbody></table>` : `<div class="empty">No fresh supply or demand zones right now.</div>`}
     <h2 style="margin-top:16px">Marked levels</h2>
     ${levelRows ? `<table><thead><tr><th>price</th><th>why it matters</th><th class="r">from now</th></tr></thead><tbody>${levelRows}</tbody></table>` : `<div class="empty">Levels appear with the first live candle of the session.</div>`}
     <h2 style="margin-top:16px">Today's decisions</h2>

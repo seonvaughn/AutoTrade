@@ -17,7 +17,7 @@ live**. Options can lose 100% of what you pay, and 0DTE options can do it in min
 
 ---
 
-## 1. How it works: 29 bots, one skill each
+## 1. How it works: 36 bots, one skill each
 
 Bots never call each other to do things. Each one publishes events on a deterministic event bus, and
 the bot that owns the next step reacts. Backtest, replay, paper and live run **the exact same bots**.
@@ -67,7 +67,14 @@ Only the price source and the broker plug-in change.
 | 26 | price_feed | Brings prices in: replayed bars or the live Alpaca (or Polygon) stream |
 | 27 | key_levels | Studies the past sessions and marks the levels that matter: prior day high/low/close, the multi-day high/low, and prices the market turned at more than once |
 | 28 | edge_tracker | Scores every trigger on every ticker from past signals: did price reach its target before its stop? |
-| 29 | research_gate | Lets an entry through only with evidence: a proven edge for that trigger on that ticker, and room before the next marked level. Otherwise it vetoes, with the reason |
+| 29 | research_gate | Lets an entry through only with evidence: a proven edge for that trigger on that ticker, no 15m / 1h / daily trend against it, and room before the next marked level or opposing zone. Otherwise it vetoes, with the reason |
+| 30 | timeframes | Builds 30-second, 5-, 15-, 30-minute and 1-hour candles alongside the 1-minute ones |
+| 31 | htf_levels | Reads about a year of daily candles: prior week, month and 52-week highs and lows, and the daily and weekly trend |
+| 32 | structure | Reads swing highs and lows on each timeframe: trend (higher highs and lows, or lower), breaks of structure, Fibonacci retracements |
+| 33 | zones | Finds supply and demand zones (the quiet base before a strong move) on 15m / 30m / 1h, until price closes through them |
+| 34 | sig_zone_reaction | **30-second** entry: price taps a fresh demand zone (CALL) or supply zone (PUT) and the bar closes with strength |
+| 35 | sig_structure_break | **5-minute** entry: a candle closes beyond the last swing high (CALL) or swing low (PUT) |
+| 36 | sig_fib_pullback | **1-minute** entry: in a 15-minute trend, price pulls back into the 50–78.6% retracement and turns back |
 
 The five **workers** (towers) from the video are QQQ OG, QQQ TREND, QQQ, SPY and IWM; seven
 single-stock towers follow them. Each is just a block in `config.yaml`: ticker, triggers, sizing,
@@ -139,7 +146,7 @@ python -m scalpcity --config config.crypto.yaml backtest --start 2026-09-01 --en
   crew room (the bots working for it). **Esc** or **Exit building** takes you back out.
 - **The Vault** (the dome in the middle): click it to go in. It holds every tower's P&L, past days
   and the whole crew.
-- **The crew:** the little robots around the city are the 29 bots, colored by job (white research,
+- **The crew:** the little robots around the city are the 36 bots, colored by job (white research, mint chart reading,
   cyan data, gold signals, violet decisions, green execution, pink records). A robot bobs and lights up while it is
   working. Click one for its skill, how many events it has handled and its last job.
 
@@ -178,7 +185,14 @@ The bots don't trade on a hunch. Before the first trade, and again every day, th
    and the reason goes to the worker's thoughts, e.g. *"no edge: vwap_cross on QQQ won 34/101
    (34%), avg −0.18R over 5 sessions"*.
 
-Each tower's **Research room** (top floor) shows its triggers' track records, the marked levels
+**Reading the charts.** Entries happen on the 30-second, 1-minute and 5-minute charts. Before that,
+the bots mark up the bigger picture: 15-minute, 30-minute and 1-hour candles (trend, swings,
+supply and demand zones, Fibonacci retracements) and daily candles (yesterday, last week, last month
+and the 52-week high and low, plus the daily and weekly trend). The research gate refuses any entry
+that goes against the 15-minute, 1-hour or daily trend, or that runs straight into an opposing zone.
+
+Each tower's **Research room** (top floor) shows its triggers' track records, the chart study for
+every timeframe, the marked levels
 and every decision of the day. The levels are also drawn on the charts. All of it is set in the
 `research:` block of the config.
 
@@ -244,5 +258,10 @@ fewer trades, and judge it by backtests over many weeks, not one day.
   474 trades, 8.2% win rate, −$3,901. The triggers flip often on 1-minute coin candles, and Alpaca's
   ~0.25% fee per side means a trade must move about 0.5% just to break even. Use the crypto edition
   to watch the machinery work on weekends, not to make money, unless your own backtests say otherwise.
+- **30-second candles in backtests are approximate.** Historical data is 1-minute, so a past minute
+  is split along the same smooth path replays use. Live, 30-second candles come from real trades.
+- **No win rate is promised, and 95% isn't a realistic target.** Win rate alone can mislead: a bot that
+  wins 95% of the time with tiny targets and big stops still loses money. Judge results by profit
+  factor (dollars won ÷ dollars lost) and net P&L over many weeks.
 - **Crypto "VWAP" has no real volume behind it.** Alpaca's crypto venue is thin, so candles are built
   from quote midpoints and VWAP behaves like an average price since midnight ET.

@@ -24,6 +24,7 @@ class Context:
     broker: "Broker"
     live: bool                     # True: wall-clock driven (paper/live); False: replay/backtest
     bots: dict[str, Any] = field(default_factory=dict)
+    span: Optional[tuple] = None   # (first day, last day) being replayed; None live
 
 
 class Bot:

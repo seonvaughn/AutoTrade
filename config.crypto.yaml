@@ -58,6 +58,9 @@ research:                   # no trade on a hunch: evidence from past sessions b
   min_avg_r: 0.05
   min_room_atr: 1.0         # skip if a marked level (prior day high, turning point...) is closer than this
   level_merge_pct: 0.1
+  # Multi-timeframe check: never trade against the trend on these timeframes (a range doesn't block).
+  align_timeframes: [15m, 1h, D]
+  zone_impulse_atr: 2.0     # supply/demand zone = quiet base before a move of 2+ ATRs (15m / 30m / 1h)
 
 sim:
   starting_cash: 30000
@@ -73,7 +76,7 @@ dashboard:
 workers:
   - name: BTC
     symbol: BTC/USD
-    triggers: [vwap_cross, ema50_cross, orb]
+    triggers: [vwap_cross, ema50_cross, orb, zone_reaction, structure_break, fib_pullback]
     start_time: "00:20"
     end_time: "23:30"
     sizing: {mode: budget, budget: 2000, max_contracts: 1}
@@ -85,7 +88,7 @@ workers:
 
   - name: ETH
     symbol: ETH/USD
-    triggers: [vwap_cross, ema50_cross, orb]
+    triggers: [vwap_cross, ema50_cross, orb, zone_reaction, structure_break, fib_pullback]
     start_time: "00:20"
     end_time: "23:30"
     sizing: {mode: budget, budget: 1500, max_contracts: 5}
@@ -97,7 +100,7 @@ workers:
 
   - name: SOL
     symbol: SOL/USD
-    triggers: [vwap_cross, ema50_cross, orb]
+    triggers: [vwap_cross, ema50_cross, orb, zone_reaction, structure_break, fib_pullback]
     trend_filter: true
     start_time: "00:20"
     end_time: "23:30"

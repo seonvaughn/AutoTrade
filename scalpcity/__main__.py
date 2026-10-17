@@ -127,6 +127,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 async def _replay_then_hold(o, days, pace) -> None:
+    if days:
+        o.ctx.span = (days[0], days[-1])
     await o.start()
     try:
         await o.feed.replay(days, pace)

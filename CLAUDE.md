@@ -24,7 +24,7 @@ Automated day-trading bots (0DTE options on US stocks/ETFs, plus a crypto editio
 ```
 scalpcity/
   __main__.py        CLI: bots | backtest | replay | paper | live | download
-  orchestrator.py    builds and wires the 29 bots; BOT_ORDER = event delivery order (it matters)
+  orchestrator.py    builds and wires the 36 bots; BOT_ORDER = event delivery order (it matters)
   core/              events (the bus messages), bus (deterministic), config, calendar, costs, storage
   bots/              one skill per bot; they talk only through events on the bus
   brokers/           alpaca.py (paper/live), sim.py (backtest/replay)
@@ -68,6 +68,14 @@ To see the city working, use the `run-scalpcity` skill (`.claude/skills/run-scal
   emits `EntryVetoed` with a reason otherwise. Signals fired on history carry `backfill=True`: the
   edge tracker studies them, while the filter and exit manager ignore them. Mechanics tests turn the
   gate off in `make_cfg()`; research behaviour is tested in `tests/test_research.py`.
+- **Chart reading (bots/chart_bots.py + three triggers in signal_bots.py).** `timeframes` emits
+  `BarClosed(tf)` for 30s/5m/15m/30m/1h (1m stays `CandleClosed`); history's 30s bars are split from
+  1m bars along `PriceFeedBot.path`. `htf_levels` loads daily candles (`data/daily.py`, cached in
+  `data.daily_dir`) for the replay span (`ctx.span`) or live, and `study(sym, day)` uses only days
+  before `day`. `structure` (swings, trend, breaks, Fibonacci) and `zones` (supply/demand) are
+  read-only queries for the triggers `zone_reaction` (30s), `structure_break` (5m), `fib_pullback`
+  (1m) and for the gate (`research.align_timeframes`, zones as obstacles). The owner asked for a
+  95% win rate: don't promise it; report win rate *and* profit factor.
 - **Never price a backtest fill from a stale option trade.** `SimChain._from_last_trade` moves the
   last real trade by delta × the stock's move since that trade. Using the last trade as-is let the
   bots "buy" at prices from before the move that fired the signal: a losing strategy showed

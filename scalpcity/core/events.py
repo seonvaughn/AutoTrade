@@ -84,6 +84,26 @@ class CandleClosed(Event):
 
 
 @dataclass
+class BarClosed(Event):
+    """A candle on a timeframe other than 1 minute: "30s", "5m", "15m", "30m" or "1h".
+    (1-minute candles keep their own event, CandleClosed.)"""
+    tf: str
+    candle: Candle
+    backfill: bool = False
+
+
+@dataclass
+class StructureBreak(Event):
+    """Price closed beyond the last swing high (bullish, side=CALL) or swing low (bearish, PUT)."""
+    symbol: str
+    tf: str
+    side: "Side"
+    level: float
+    candle: Candle
+    backfill: bool = False
+
+
+@dataclass
 class IndicatorValue(Event):
     name: str          # "vwap" | "ema50" | "atr" | "opening_range"
     symbol: str

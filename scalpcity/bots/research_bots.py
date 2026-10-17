@@ -201,7 +201,25 @@ class ResearchGateBot(Bot):
         hi, lo, locked = self.bot("opening_range").range(sig.symbol)
         if locked:
             levels += [KeyLevel(hi, "opening range high", 1), KeyLevel(lo, "opening range low", 1)]
-        ev: dict = {"edge": edge, "levels_studied": len(levels)}
+        htf = self.bot("htf_levels")
+        if htf:
+            levels += htf.study(sig.symbol, day)["levels"]
+        zones = self.bot("zones")
+        # opposing zones are obstacles: supply above a CALL, demand below a PUT
+        inside = None
+        for z in (zones.zones(sig.symbol) if zones else []):
+            opposing = (sig.side is Side.CALL and z["kind"] == "supply") or (sig.side is Side.PUT and z["kind"] == "demand")
+            if not opposing:
+                continue
+            if z["lo"] <= sig.close <= z["hi"]:
+                inside = z
+            elif sig.side is Side.CALL and z["lo"] > sig.close:
+                levels.append(KeyLevel(z["lo"], f"{z['tf']} supply zone", 2))
+            elif sig.side is Side.PUT and z["hi"] < sig.close:
+                levels.append(KeyLevel(z["hi"], f"{z['tf']} demand zone", 2))
+        st = self.bot("structure")
+        trends = {tf: st.trend(sig.symbol, tf, day) for tf in r.align_timeframes} if st else {}
+        ev: dict = {"edge": edge, "levels_studied": len(levels), "trend": trends}
         if not sig.atr:
             return ev, "not enough data yet (ATR still warming up)"
         if edge["n"] < r.min_samples:
@@ -210,6 +228,12 @@ class ResearchGateBot(Bot):
         if edge["win_rate"] < r.min_win_rate or edge["avg_r"] < r.min_avg_r:
             return ev, (f"no edge: {sig.trigger} on {sig.symbol} won {edge['wins']}/{edge['n']} "
                         f"({edge['win_rate']:.0%}), avg {edge['avg_r']:+.2f}R over {r.lookback_days} sessions")
+        against = "bearish" if sig.side is Side.CALL else "bullish"
+        bad = [tf for tf, t in trends.items() if t == against]
+        if bad:
+            return ev, f"against the {', '.join(bad)} trend ({against})"
+        if inside:
+            return ev, f"inside a {inside['tf']} {inside['kind']} zone ({inside['lo']:,.2f}-{inside['hi']:,.2f})"
         if sig.side is Side.CALL:
             ahead = [lv for lv in levels if lv.price > sig.close]
             nxt = min(ahead, key=lambda lv: lv.price) if ahead else None

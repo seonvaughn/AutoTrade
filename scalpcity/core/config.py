@@ -8,7 +8,8 @@ from typing import Any
 
 import yaml
 
-VALID_TRIGGERS = {"vwap_cross", "ema50_cross", "orb"}
+VALID_TRIGGERS = {"vwap_cross", "ema50_cross", "orb", "zone_reaction", "structure_break", "fib_pullback"}
+VALID_TIMEFRAMES = {"5m", "15m", "30m", "1h", "D", "W"}
 VALID_MODES = {"backtest", "replay", "paper", "live"}
 LIVE_CONFIRM_ENV = "SCALPCITY_LIVE_CONFIRM"
 LIVE_CONFIRM_VALUE = "I_UNDERSTAND_THIS_TRADES_REAL_MONEY"
@@ -87,6 +88,10 @@ class ResearchConfig:
     min_avg_r: float = 0.05           # average result per signal, in units of the stop distance
     min_room_atr: float = 1.0         # room needed before the next marked level in the trade's direction
     level_merge_pct: float = 0.1      # turning points closer than this % are one level
+    # Multi-timeframe check: an entry may not go against the trend on any of these timeframes
+    # (bullish = higher highs and higher lows; a "range" or "unknown" trend doesn't block).
+    align_timeframes: list[str] = field(default_factory=lambda: ["15m", "1h", "D"])
+    zone_impulse_atr: float = 2.0     # a supply/demand zone needs a move this many ATRs (of its timeframe)
 
 
 @dataclass
@@ -112,6 +117,7 @@ class DataConfig:
     source: str = "synthetic"         # synthetic | csv | polygon | alpaca
     csv_dir: str = "data/bars"
     option_bars_dir: str = "data/option_bars"
+    daily_dir: str = "data/daily"     # cached daily candles for the higher-timeframe study
     live_data: str = "alpaca"         # paper/live price source: alpaca | polygon
     polygon_feed: str = "realtime"    # realtime | delayed
     alpaca_stock_feed: str = "iex"    # iex (free) | sip (paid)
@@ -186,6 +192,8 @@ def validate(cfg: Config) -> None:
     if cfg.mode not in VALID_MODES:
         raise ValueError(f"mode must be one of {sorted(VALID_MODES)}")
     r = cfg.research
+    if set(r.align_timeframes) - VALID_TIMEFRAMES:
+        raise ValueError(f"research.align_timeframes: unknown {sorted(set(r.align_timeframes) - VALID_TIMEFRAMES)}")
     if r.lookback_days < 1 or r.min_samples < 1 or r.target_atr <= 0 or r.stop_atr <= 0 or r.horizon_minutes < 1:
         raise ValueError("research: lookback_days, min_samples, target_atr, stop_atr and horizon_minutes must be > 0")
     if cfg.market not in {"options", "crypto"}:

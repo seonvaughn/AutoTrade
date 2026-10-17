@@ -10,7 +10,13 @@ from ..core.costs import QTY_EPS, fmt_qty
 from .base import Bot
 from .signal_filter_bot import LONG_ONLY
 
-TRIGGER_LABEL = {"vwap_cross": "VWAP", "ema50_cross": "EMA50", "orb": "opening range"}
+TRIGGER_LABEL = {"vwap_cross": "VWAP", "ema50_cross": "EMA50", "orb": "opening range",
+                 "zone_reaction": "supply/demand zone", "structure_break": "5m structure break",
+                 "fib_pullback": "Fibonacci pullback"}
+
+WHY = {"vwap_cross": "VWAP cross", "ema50_cross": "EMA50 cross", "orb": "range breakout",
+       "zone_reaction": "bounce off a supply/demand zone", "structure_break": "5m break of structure",
+       "fib_pullback": "Fibonacci pullback in the 15m trend"}
 
 
 def money(x: float) -> str:
@@ -168,7 +174,7 @@ class JournalBot(Bot):
     def on_opened(self, e: PositionOpened) -> None:
         self.busy.add(e.worker)
         s = e.signal
-        why = f" · {TRIGGER_LABEL[s.trigger]} cross" if s and s.trigger != "orb" else " · range breakout" if s else ""
+        why = f" · {WHY.get(s.trigger, TRIGGER_LABEL[s.trigger])}" if s else ""
         if e.contract.kind == "crypto":
             text = f"FIRE ▲ BUY {fmt_qty(e.qty)} {e.contract.underlying} @ {e.entry_price:,.2f}{why}"
         else:

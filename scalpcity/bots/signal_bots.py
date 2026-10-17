@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
-from ..core.events import IndicatorValue, SetupUpdate, Side, Signal, Tick
+from ..core.events import BarClosed, CandleClosed, IndicatorValue, SetupUpdate, Side, Signal, StructureBreak, Tick
 from .base import Bot
 
 CHARGE_WINDOW_ATR = 1.0  # price this many ATRs away = 0% charged; on the level = 100%
@@ -175,3 +175,96 @@ class ORBBot(_SignalBot):
             return None
         _, side, level = min(options)
         return side, level
+
+
+# ---------------------------------------------------------------- chart-reading triggers
+class _ChartSignalBot(_SignalBot):
+    """Triggers driven by the chart bots (zones, structure). No live charge meter."""
+
+    def handle(self, ev: IndicatorValue) -> None:
+        pass
+
+    def levels_for(self, symbol: str, price: float):
+        return None
+
+    def fire_on(self, ts, c, side: Side, level: float, backfill: bool) -> None:
+        self.emit(Signal(ts, c.symbol, self.trigger, side, c.close, level, self.atr.get(c.symbol),
+                         ema50=self.ema.get(c.symbol), vwap=self.vwap.get(c.symbol), backfill=backfill))
+
+
+class ZoneReactionBot(_ChartSignalBot):
+    name = "sig_zone_reaction"
+    skill = "30-second entry: price taps a fresh demand zone (CALL) or supply zone (PUT) and the bar closes with strength"
+    trigger = "zone_reaction"
+
+    def setup(self) -> None:
+        super().setup()
+        self.prev: dict[str, object] = {}
+        self.fired: set[tuple[str, str]] = set()   # (day, zone id): one reaction per zone per day
+        self.on(BarClosed, self.on_bar)
+
+    def on_bar(self, e: BarClosed) -> None:
+        if e.tf != "30s":
+            return
+        c = e.candle
+        prev = self.prev.get(c.symbol)
+        self.prev[c.symbol] = c
+        zones = self.bot("zones")
+        if prev is None or zones is None:
+            return
+        day = c.start.date().isoformat()
+        for z in zones.zones(c.symbol):
+            if (day, z["id"]) in self.fired:
+                continue
+            if z["kind"] == "demand" and c.low <= z["hi"] and c.close > c.open and c.close > prev.high:
+                self.fired.add((day, z["id"]))
+                self.fire_on(e.ts, c, Side.CALL, z["hi"], e.backfill)
+                return
+            if z["kind"] == "supply" and c.high >= z["lo"] and c.close < c.open and c.close < prev.low:
+                self.fired.add((day, z["id"]))
+                self.fire_on(e.ts, c, Side.PUT, z["lo"], e.backfill)
+                return
+
+
+class StructureBreakBot(_ChartSignalBot):
+    name = "sig_structure_break"
+    skill = "5-minute entry: a candle closes beyond the last swing high (CALL) or swing low (PUT)"
+    trigger = "structure_break"
+    TF = "5m"
+
+    def setup(self) -> None:
+        super().setup()
+        self.on(StructureBreak, self.on_break)
+
+    def on_break(self, e: StructureBreak) -> None:
+        if e.tf == self.TF:
+            self.fire_on(e.ts, e.candle, e.side, e.level, e.backfill)
+
+
+class FibPullbackBot(_ChartSignalBot):
+    name = "sig_fib_pullback"
+    skill = "1-minute entry: in a 15-minute trend, price pulls back into the 50-78.6% retracement and turns back"
+    trigger = "fib_pullback"
+    TF = "15m"
+
+    def setup(self) -> None:
+        super().setup()
+        self.prev: dict[str, object] = {}
+        self.fired: set = set()                      # one entry per swing leg
+        self.on(CandleClosed, self.on_candle)
+
+    def on_candle(self, e: CandleClosed) -> None:
+        c = e.candle
+        prev = self.prev.get(c.symbol)
+        self.prev[c.symbol] = c
+        st = self.bot("structure")
+        leg = st.fib(c.symbol, self.TF) if st else None
+        if prev is None or leg is None or (c.symbol, leg["id"]) in self.fired:
+            return
+        lv = leg["levels"]
+        if leg["direction"] == "up" and lv[0.786] <= c.low <= lv[0.5] and c.close > c.open and c.close > prev.high:
+            self.fired.add((c.symbol, leg["id"]))
+            self.fire_on(e.ts, c, Side.CALL, lv[0.618], e.backfill)
+        elif leg["direction"] == "down" and lv[0.5] <= c.high <= lv[0.786] and c.close < c.open and c.close < prev.low:
+            self.fired.add((c.symbol, leg["id"]))
+            self.fire_on(e.ts, c, Side.PUT, lv[0.618], e.backfill)

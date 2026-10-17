@@ -184,5 +184,17 @@ To see the city working, use the `run-scalpcity` skill (`.claude/skills/run-scal
   paste its transcript, then read it in full and write `21-how-to-take-a-win.md`.
 - **News dates:** the 2026 FOMC days are in `config.yaml`. The CPI/PPI/NFP dates there are unverified (bls.gov is
   unreachable from cloud sessions) and incomplete. Ask the owner to check https://www.bls.gov/schedule/.
+- **TJR first results (2026-10-17):**
+  - Backtest Sep 1–Oct 15 (real option bars, gate on): −$412, 4 trades (1 win), PF 0.15. 106 entries vetoed, mostly
+    "no edge" over the past 5 sessions. Too few trades to judge.
+  - Raw setup record Jun 1–Oct 15, all 10 tickers, scored on the underlying at each setup's own stop/target within
+    120 min:
+    - all 2,090 setups: 22% wins, −0.011R avg, PF 0.97
+    - the 208 setups the plan would take (bias, 09:35–11:00, no news): 20% wins, −0.039R, PF 0.91
+    - 44% timed out before either level
+  - Following TJR's filters did not improve the record. Per-ticker splits (n 15–31) are noise; don't cherry-pick
+    them. As coded, the model is break-even-to-negative before option costs.
+  - Next experiments: closer targets (TJR TP1 = first liquidity one timeframe up), the time limit, and whether
+    "prominent" liquidity (the prior day only, or 1h+) changes it.
 - Towers now trade `smc_retrace` only, 09:35–11:00, one trade a day for the account, $300 risk (1%). QQQ TREND and QQQ
   are disabled (same ticker as QQQ OG).

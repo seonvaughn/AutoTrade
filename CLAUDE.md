@@ -25,7 +25,7 @@ towers trade now: start with its `README.md`).
 ```
 scalpcity/
   __main__.py        CLI: bots | backtest | replay | paper | live | download
-  orchestrator.py    builds and wires the 46 bots; BOT_ORDER = event delivery order (it matters)
+  orchestrator.py    builds and wires the bots (37 with config.yaml; legacy trigger bots only when traded); BOT_ORDER = event delivery order (it matters)
   core/              events (the bus messages), bus (deterministic), config, calendar, costs, storage
   bots/              one skill per bot; they talk only through events on the bus
   brokers/           alpaca.py (paper/live), sim.py (backtest/replay)

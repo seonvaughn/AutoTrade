@@ -362,7 +362,7 @@ def test_lessons_need_repeated_evidence_before_becoming_rules(tmp_path):
     o.cfg.research.lessons_path = str(tmp_path / "lessons.json")
     book = o.ctx.bots["lessons"]
     book.setup()
-    f = {"ticker": "QQQ", "hour": "10:00-11:00", "zone": "gap"}
+    f = {"ticker": "QQQ", "hour": "10:00-11:00", "zone": "gap", "trigger": "smc_retrace"}
 
     def scored(i, r, zone="gap"):
         return SetupScored(cal.at(D, "10:00") + timedelta(minutes=i), "QQQ", "smc_retrace", Side.CALL,
@@ -372,7 +372,9 @@ def test_lessons_need_repeated_evidence_before_becoming_rules(tmp_path):
     emit(o, *[scored(i, -1.0 if i % 4 else 0.5) for i in range(10, 40)])
     emit(o, *[scored(i, -1.0 if i % 4 else 0.5) for i in range(0, 5)])   # replayed history counts once
     emit(o, *[scored(100 + i, 1.0 if i % 4 else -1.0, "order block") for i in range(40)])
-    assert book.stats["zone=gap"][0] == 40 and book.stats["ticker=QQQ"][0] == 80
+    assert book.stats["smc_retrace|zone=gap"][0] == 40 and book.stats["smc_retrace|ticker=QQQ"][0] == 80
+    emit(o, SetupScored(cal.at(D, "11:00"), "QQQ", "vwap_cross", Side.CALL, "loss", -1.0, f, True))
+    assert book.stats["smc_retrace|zone=gap"][0] == 40          # strategies no tower trades teach nothing
     rule = book.check(f)
     assert rule and "zone = gap lost" in rule                   # 40 cases, clearly negative: avoid
     assert book.check({**f, "zone": "order block"}) is None

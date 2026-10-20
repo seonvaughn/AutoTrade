@@ -47,6 +47,21 @@ BOT_ORDER = [
     JournalBot, AnalystBot, AlertBot,
 ]
 
+# Bots that only serve the older indicator/chart triggers. They are built only when an enabled tower trades one
+# of them, so the crew stays focused on what the towers actually trade.
+LEGACY = {
+    "vwap_cross": [VWAPCrossBot], "ema50_cross": [EMACrossBot], "orb": [OpeningRangeBot, ORBBot],
+    "zone_reaction": [ZonesBot, ZoneReactionBot], "structure_break": [StructureBot, StructureBreakBot],
+    "fib_pullback": [StructureBot, FibPullbackBot],
+}
+
+
+def bot_order(cfg: Config) -> list:
+    traded = {t for w in cfg.workers if w.enabled for t in w.triggers}
+    legacy = {cls for classes in LEGACY.values() for cls in classes}
+    wanted = {cls for t in traded for cls in LEGACY.get(t, [])}
+    return [cls for cls in BOT_ORDER if cls not in legacy or cls in wanted]
+
 
 class Orchestrator:
     name = "orchestrator"
@@ -62,7 +77,7 @@ class Orchestrator:
         self.storage = Storage(db_path or cfg.db_path, run_id, cfg.mode)
         self.ctx = Context(cfg, self.bus, self.storage, broker=None, live=self.live)  # type: ignore[arg-type]
         self.ctx.bots[self.name] = self
-        self.bots = [cls(self.ctx) for cls in BOT_ORDER]
+        self.bots = [cls(self.ctx) for cls in bot_order(cfg)]
         self.ctx.broker = self._make_broker()
         want_dash = cfg.dashboard.enabled if dashboard is None else dashboard
         self.dashboard = None

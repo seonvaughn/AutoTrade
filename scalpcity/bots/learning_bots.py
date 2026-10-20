@@ -119,7 +119,8 @@ class LessonsBot(Bot):
     def setup(self) -> None:
         r = self.cfg.research
         self.path = Path(r.lessons_path) if r.lessons_path else None
-        self.stats: dict[str, list[float]] = {}     # "feature=value" -> [n, sum R, sum R^2]
+        self.stats: dict[str, list[float]] = {}     # "trigger|feature=value" -> [n, sum R, sum R^2]
+        self.traded = {t for w in self.cfg.workers if w.enabled for t in w.triggers}
         self.verdicts: dict[str, int] = {}
         self.seen: set[str] = set()
         self._load()
@@ -142,15 +143,15 @@ class LessonsBot(Bot):
                                          "seen": sorted(self.seen)[-20000:], "lessons": self.lessons()}, indent=1))
 
     def on_scored(self, e: SetupScored) -> None:
-        if not e.plan:
-            return                                  # learn from the setups the plan would actually take
+        if not e.plan or e.trigger not in self.traded:
+            return                                  # learn only from setups the towers would actually take
         key = f"{e.symbol}|{e.trigger}|{e.ts.isoformat()}"
         if key in self.seen:                        # history replayed again after a restart: count once
             return
         self.seen.add(key)
         for name in FEATURES:
-            if e.features.get(name) is not None:
-                st = self.stats.setdefault(f"{name}={e.features[name]}", [0, 0.0, 0.0])
+            if name != "trigger" and e.features.get(name) is not None:
+                st = self.stats.setdefault(f"{e.trigger}|{name}={e.features[name]}", [0, 0.0, 0.0])
                 st[0] += 1
                 st[1] += e.r
                 st[2] += e.r * e.r
@@ -168,15 +169,17 @@ class LessonsBot(Bot):
             var = max(ss / n - mean * mean, 1e-9) * n / (n - 1)
             t = mean / math.sqrt(var / n)
             if abs(t) >= r.lessons_t:
-                feature, value = key.split("=", 1)
-                out.append({"feature": feature, "value": value, "n": int(n), "avg_r": round(mean, 3),
+                trigger, rest = key.split("|", 1)
+                feature, value = rest.split("=", 1)
+                out.append({"trigger": trigger, "feature": feature, "value": value, "n": int(n), "avg_r": round(mean, 3),
                             "t": round(t, 2), "kind": "avoid" if t < 0 else "favor"})
         return sorted(out, key=lambda x: x["t"])
 
     def check(self, features: dict) -> Optional[str]:
-        """An avoid rule that matches this setup, or None."""
+        """An avoid rule learned from this setup's own strategy that matches it, or None."""
         for les in self.lessons():
-            if les["kind"] == "avoid" and str(features.get(les["feature"])) == les["value"]:
+            if les["kind"] == "avoid" and les["trigger"] == features.get("trigger") \
+                    and str(features.get(les["feature"])) == les["value"]:
                 return (f"lesson learned: setups with {les['feature']} = {les['value']} lost "
                         f"{les['avg_r']:+.2f}R on average over {les['n']} cases (t {les['t']:+.1f})")
         return None

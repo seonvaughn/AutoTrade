@@ -12,8 +12,13 @@ from tests.conftest import make_cfg
 D = date(2026, 10, 15)
 
 
+LEGACY_TRIGGERS = ["vwap_cross", "ema50_cross", "orb", "zone_reaction", "structure_break", "fib_pullback"]
+
+
 def system(research=False):
     cfg = make_cfg()
+    for w in cfg.workers:                  # the chart bots are only built for towers that trade their triggers
+        w.triggers = list(LEGACY_TRIGGERS)
     cfg.research.enabled = research
     return Orchestrator(cfg, db_path=":memory:", dashboard=False)
 

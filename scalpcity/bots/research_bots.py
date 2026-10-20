@@ -273,7 +273,8 @@ class ResearchGateBot(Bot):
         day = sig.ts.date()
         edge = self.bot("edge_tracker").stats(sig.symbol, sig.trigger, day)
         levels = list(self.bot("key_levels").levels(sig.symbol, day))
-        hi, lo, locked = self.bot("opening_range").range(sig.symbol)
+        orng = self.bot("opening_range")
+        hi, lo, locked = orng.range(sig.symbol) if orng else (None, None, False)
         if locked:
             levels += [KeyLevel(hi, "opening range high", 1), KeyLevel(lo, "opening range low", 1)]
         htf = self.bot("htf_levels")

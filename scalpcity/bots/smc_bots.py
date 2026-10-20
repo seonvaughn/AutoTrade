@@ -19,7 +19,7 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 
 from ..core import calendar as cal
-from ..core.config import SMC_TRIGGERS
+from ..core.config import PLANNED_TRIGGERS, SMC_TRIGGERS
 from ..core.events import (BarClosed, BreakOfStructure, Candle, CandleClosed, Heartbeat, LiquiditySweep,
                            MorningPlan, SessionEvent, SessionKind, Side, Signal)
 from .base import Bot
@@ -448,11 +448,12 @@ class MorningStudyBot(Bot):
         db = self.bot("daily_bias")
         bias = db.bias(sym, d) if db else {"D": "unknown"}
         details["bias"] = {k: bias.get(k) for k in ("W", "D", "4h")}
-        if bias.get("D") == "unknown":
+        needs_bias = any(t in SMC_TRIGGERS for w in self.cfg.workers if w.enabled and w.symbol == sym for t in w.triggers)
+        if needs_bias and bias.get("D") == "unknown":
             reasons.append("no daily bias: daily candles missing")
         et = self.bot("edge_tracker")
         triggers = sorted({t for w in self.cfg.workers if w.enabled and w.symbol == sym for t in w.triggers}
-                          & SMC_TRIGGERS)
+                          & PLANNED_TRIGGERS)
         for t in triggers:
             st = et.stats(sym, t, d) if et else {"proven": False, "n": 0, "avg_r": 0.0}
             details[t] = {k: st.get(k) for k in ("n", "wins", "win_rate", "avg_r", "proven")}

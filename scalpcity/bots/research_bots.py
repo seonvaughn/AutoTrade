@@ -17,7 +17,7 @@ from datetime import date, timedelta
 from ..core import calendar as cal
 from ..core.events import (CandleClosed, EntryVetoed, KeyLevel, KeyLevels, ResearchCleared, SetupScored, Side,
                            Signal, WorkerSignal)
-from ..core.config import SMC_TRIGGERS
+from ..core.config import PLANNED_TRIGGERS, SMC_TRIGGERS
 from .base import Bot
 
 BUCKET_MINUTES = 15  # turning points are found on 15-minute bars
@@ -53,7 +53,7 @@ def features_of(bot, s: Signal) -> dict:
 
 def edge_days(cfg, trigger: str) -> int:
     r = cfg.research
-    return r.edge_lookback_days if trigger in SMC_TRIGGERS and r.edge_lookback_days else r.lookback_days
+    return r.edge_lookback_days if trigger in PLANNED_TRIGGERS and r.edge_lookback_days else r.lookback_days
 
 
 def _lookback_start(today: date, days: int) -> date:
@@ -207,6 +207,8 @@ class EdgeTrackerBot(Bot):
         if not any(w.enabled and w.symbol == s.symbol and s.trigger in w.triggers
                    and cal.at(d, w.start_time) <= s.ts < cal.at(d, w.end_time) for w in self.cfg.workers):
             return False
+        if s.trigger not in SMC_TRIGGERS:
+            return True                               # the opening range needs no daily bias (the video's rule)
         db = self.bot("daily_bias")
         bias = db.bias(s.symbol, d)["D"] if db else "unknown"
         if self.cfg.smc.require_daily_bias and bias == "unknown":
@@ -239,7 +241,7 @@ class EdgeTrackerBot(Bot):
         win_rate = wins / n if n else 0.0
         # Chart-planned triggers carry their own reward:risk, so a low win rate can still pay: they are judged
         # on expectancy (average R per setup). The indicator triggers keep the win-rate bar too.
-        planned = trigger in SMC_TRIGGERS
+        planned = trigger in PLANNED_TRIGGERS
         proven = n >= r.min_samples and avg_r >= r.min_avg_r and (planned or win_rate >= r.min_win_rate)
         return {"symbol": symbol, "trigger": trigger, "n": n, "wins": wins, "losses": losses,
                 "timeouts": n - wins - losses, "win_rate": round(win_rate, 3), "avg_r": round(avg_r, 3),
@@ -350,6 +352,8 @@ class ResearchGateBot(Bot):
         if lesson:
             return ev, lesson
         m = self.cfg.smc
+        if sig.trigger not in SMC_TRIGGERS:           # opening range: no daily bias rule; judge the plan's reward
+            return self._reward(sig, ev)
         db = self.bot("daily_bias")
         bias = db.bias(sig.symbol, sig.ts.date()) if db else {"D": "unknown"}
         ev["daily_bias"] = bias
@@ -375,6 +379,10 @@ class ResearchGateBot(Bot):
             if (want == "bearish" and sig.close < rng["eq"]) or (want == "bullish" and sig.close > rng["eq"]):
                 return ev, (f"the {' and '.join(against)} trend opposes the daily bias and price isn't in the daily "
                             f"{half} yet (equilibrium {rng['eq']:,.2f}, Day 36)")
+        return self._reward(sig, ev)
+
+    def _reward(self, sig: Signal, ev: dict) -> tuple[dict, str | None]:
+        m = self.cfg.smc
         if sig.target is None:
             return ev, "no resting liquidity ahead to target"
         risk, reward = abs(sig.close - sig.stop), abs(sig.target - sig.close)

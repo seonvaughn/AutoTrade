@@ -20,6 +20,7 @@ from .bots.learning_bots import LessonsBot, TradeReviewBot
 from .bots.indicator_bots import ATRBot, EMABot, OpeningRangeBot, VWAPBot
 from .bots.ops_bots import AlertBot, HealthBot
 from .bots.options_chain_bot import OptionsChainBot
+from .bots.orb_bots import OpeningRange15Bot
 from .bots.price_feed_bot import PriceFeedBot
 from .bots.record_bots import AnalystBot, JournalBot, LedgerBot
 from .bots.research_bots import EdgeTrackerBot, KeyLevelsBot, ResearchGateBot
@@ -41,7 +42,7 @@ BOT_ORDER = [
     ATRBot, VWAPBot, EMABot, OpeningRangeBot, KeyLevelsBot, HigherTimeframeBot, StructureBot, ZonesBot,
     MarketStructureBot, LiquidityBot, ImbalanceBot, OrderBlockBot, DailyBiasBot, NewsCalendarBot,
     VWAPCrossBot, EMACrossBot, ORBBot, ZoneReactionBot, StructureBreakBot, FibPullbackBot, SmartMoneyEntryBot,
-    EdgeTrackerBot, MorningStudyBot,
+    OpeningRange15Bot, EdgeTrackerBot, MorningStudyBot,
     SignalFilterBot, ResearchGateBot, ContractSelectorBot, PositionSizerBot, RiskManagerBot, ExecutionBot,
     LedgerBot, ExitManagerBot, TradeReviewBot, LessonsBot, DailyGoalBot, ReconciliationBot,
     JournalBot, AnalystBot, AlertBot,
@@ -53,6 +54,7 @@ LEGACY = {
     "vwap_cross": [VWAPCrossBot], "ema50_cross": [EMACrossBot], "orb": [OpeningRangeBot, ORBBot],
     "zone_reaction": [ZonesBot, ZoneReactionBot], "structure_break": [StructureBot, StructureBreakBot],
     "fib_pullback": [StructureBot, FibPullbackBot],
+    "orb15_breakout": [OpeningRange15Bot], "orb15_retest": [OpeningRange15Bot], "orb15_reversal": [OpeningRange15Bot],
 }
 
 

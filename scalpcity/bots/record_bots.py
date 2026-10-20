@@ -13,13 +13,17 @@ from .signal_filter_bot import LONG_ONLY
 TRIGGER_LABEL = {"vwap_cross": "VWAP", "ema50_cross": "EMA50", "orb": "opening range",
                  "zone_reaction": "supply/demand zone", "structure_break": "5m structure break",
                  "fib_pullback": "Fibonacci pullback", "smc_retrace": "TJR sweep + break + retrace",
-                 "smc_bos": "TJR sweep + break"}
+                 "smc_bos": "TJR sweep + break", "orb15_breakout": "15m range breakout",
+                 "orb15_retest": "15m range retest", "orb15_reversal": "15m range reversal"}
 
 WHY = {"vwap_cross": "VWAP cross", "ema50_cross": "EMA50 cross", "orb": "range breakout",
        "zone_reaction": "bounce off a supply/demand zone", "structure_break": "5m break of structure",
        "fib_pullback": "Fibonacci pullback in the 15m trend",
        "smc_retrace": "liquidity sweep, break of structure, retrace into an order block / gap, lower-timeframe break",
-       "smc_bos": "liquidity sweep then break of structure"}
+       "smc_bos": "liquidity sweep then break of structure",
+       "orb15_breakout": "5m close beyond the 15m opening range, 1m displacement gap",
+       "orb15_retest": "5m close beyond the 15m opening range, retest held, 1m break",
+       "orb15_reversal": "failed 15m range break, 1m break back the other way"}
 
 
 def money(x: float) -> str:

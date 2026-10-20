@@ -97,7 +97,7 @@ def main(argv: list[str] | None = None) -> int:
         if cfg.data.source in ("polygon", "alpaca"):
             from .data.bars import download
             first = days[0]
-            for _ in range(max(1, cfg.research.lookback_days)):  # the sessions the research bots study first
+            for _ in range(max(1, cfg.research.lookback_days, cfg.research.edge_lookback_days)):  # studied first
                 first = cal.prev_trading_day(first)
             download(cfg.symbols, first, days[-1], cfg.data.csv_dir, cfg.data.source)
         if cfg.data.source == "synthetic":

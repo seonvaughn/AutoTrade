@@ -99,6 +99,10 @@ class ResearchConfig:
     zone_impulse_atr: float = 2.0     # a supply/demand zone needs a move this many ATRs (of its timeframe)
     # Triggers scored across all tickers together (one setup, any market: TJR's model is the same everywhere).
     pooled_triggers: list[str] = field(default_factory=list)
+    # How many past sessions of setups count as evidence for chart-planned triggers (0 = lookback_days).
+    # Five sessions of pooled setups is too few to tell an edge from noise (docs/research-log.md).
+    edge_lookback_days: int = 0
+    morning_study: str = "07:00"      # the daily study before the open; no entries until it has cleared the tower
 
 
 @dataclass
@@ -113,7 +117,13 @@ class SmcConfig:
     min_rr: float = 1.0               # Day 37: the first target at least 1:1
     max_setup_minutes: int = 120      # a setup not retraced into by then is dropped
     horizon_minutes: int = 120        # how long the edge tracker gives a past setup to reach stop or target
-    require_daily_bias: bool = True   # Day 34: trade only with the daily structure (last daily break)
+    require_daily_bias: bool = True   # a daily bias must be known (from daily candles) before any entry
+    # with: TJR Day 34 (trade with the last daily break). against: take setups that run against it (pullbacks).
+    # any: ignore the direction. Evidence 2026-06..10: "against" + fixed 1R was the only variant that held up on
+    # unseen months (docs/research-log.md). TJR teaches "with".
+    bias_mode: str = "with"
+    target_mode: str = "liquidity"    # liquidity: next resting liquidity >= min_rr (Day 37) | fixed: target_r x risk
+    target_r: float = 1.0
     require_sweep: bool = True        # Days 12, 30, 33: the break must follow a sweep of resting liquidity
 
 
@@ -233,10 +243,17 @@ def validate(cfg: Config) -> None:
     if r.lookback_days < 1 or r.min_samples < 1 or r.target_atr <= 0 or r.stop_atr <= 0 or r.horizon_minutes < 1:
         raise ValueError("research: lookback_days, min_samples, target_atr, stop_atr and horizon_minutes must be > 0")
     m = cfg.smc
+    try:
+        h, mm = (int(x) for x in cfg.research.morning_study.split(":"))
+        assert 0 <= h < 24 and 0 <= mm < 60
+    except (ValueError, AssertionError):
+        raise ValueError("research.morning_study must be HH:MM") from None
     if not m.setup_timeframes or set(m.setup_timeframes) - {"5m", "15m", "30m", "1h"}:
         raise ValueError("smc.setup_timeframes: choose from 5m, 15m, 30m, 1h")
     if set(m.target_timeframes) - {"1m", "5m", "15m", "30m", "1h", "4h"}:
         raise ValueError("smc.target_timeframes: unknown timeframe")
+    if m.bias_mode not in {"with", "against", "any"} or m.target_mode not in {"liquidity", "fixed"} or m.target_r <= 0:
+        raise ValueError("smc: bias_mode with|against|any, target_mode liquidity|fixed, target_r > 0")
     if m.min_rr <= 0 or m.max_setup_minutes < 1 or m.horizon_minutes < 1:
         raise ValueError("smc: min_rr, max_setup_minutes and horizon_minutes must be > 0")
     from datetime import datetime as _dt

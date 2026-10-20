@@ -63,7 +63,7 @@ class PriceFeedBot(Bot):
     def warm_days(self, first: date) -> list[date]:
         """Past sessions replayed (as history) before trading: the research bots study these."""
         out, d = [], first
-        for _ in range(max(1, self.cfg.research.lookback_days)):
+        for _ in range(max(1, self.cfg.research.lookback_days, self.cfg.research.edge_lookback_days)):
             d = cal.prev_trading_day(d)
             out.append(d)
         return sorted(out)

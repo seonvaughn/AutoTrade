@@ -5,7 +5,8 @@ from datetime import date, datetime, timedelta
 from scalpcity.bots.smc_bots import Structure, daily_structure, find_gaps
 from scalpcity.core import calendar as cal
 from scalpcity.core.config import WorkerConfig
-from scalpcity.core.events import (BreakOfStructure, Candle, CandleClosed, EntryVetoed, LiquiditySweep,
+from scalpcity.core.events import (BreakOfStructure, Candle, CandleClosed, EntryVetoed, Heartbeat, LiquiditySweep,
+                                   MorningPlan,
                                    ResearchCleared, Side, Signal, WorkerSignal)
 from scalpcity.orchestrator import Orchestrator
 from tests.conftest import make_cfg
@@ -174,6 +175,7 @@ def _with_daily(o, trend):
 def _pass_edge(o):
     o.ctx.bots["edge_tracker"].stats = lambda *a: {"n": 20, "wins": 12, "losses": 8, "timeouts": 0, "win_rate": 0.6,
                                                    "avg_r": 0.5, "proven": True}
+    o.ctx.bots["morning_study"].plan = lambda sym, d: MorningPlan(cal.at(d, "07:00"), sym, d, True, [], {})
 
 
 def test_gate_needs_the_daily_bias_to_agree():
@@ -264,3 +266,34 @@ def test_only_setups_the_plan_would_take_count_as_evidence():
     assert not et.in_plan(_signal(Side.PUT, ts=cal.at(D, "10:30")))      # news day
     et.results[("QQQ", "smc_retrace")] = [(D, "PUT", "win", 2.0, False)] * 10   # out-of-plan wins prove nothing
     assert et.stats("QQQ", "smc_retrace", D)["n"] == 0
+
+
+def test_morning_study_runs_at_seven_and_gates_the_day():
+    o = system(research=True)
+    _with_daily(o, "bearish")
+    plans = collect(o, MorningPlan)
+    emit(o, Heartbeat(cal.at(D, "06:59")))
+    assert plans == []                                                  # not before 07:00
+    emit(o, Heartbeat(cal.at(D, "07:00")), Heartbeat(cal.at(D, "07:01")))
+    assert len(plans) == 1 and plans[0].symbol == "QQQ"                 # once a day, per ticker
+    assert not plans[0].cleared and "record not proven" in plans[0].reasons[0]
+    o.ctx.bots["edge_tracker"].stats = lambda *a: {"n": 20, "wins": 12, "avg_r": 0.5, "proven": True}
+    reason, _, _ = _gate(o, _signal(Side.PUT))                          # a record later in the day doesn't undo it
+    assert reason.startswith("stood down at the morning study")
+    o2 = system(research=True)
+    o2.ctx.bots["edge_tracker"].stats = lambda *a: {"n": 20, "wins": 12, "avg_r": 0.5, "proven": True}
+    reason, _, _ = _gate(o2, _signal(Side.PUT))
+    assert reason == "no morning study for today yet: nothing trades before it"
+
+
+def test_bias_mode_against_trades_pullbacks_and_fixed_targets():
+    o = system(research=True)
+    o.cfg.smc.bias_mode = "against"
+    _pass_edge(o)
+    _with_daily(o, "bearish")
+    reason, _, _ = _gate(o, _signal(Side.PUT))
+    assert reason and "trades against the daily bias" in reason
+    reason, ok, _ = _gate(o, _signal(Side.CALL, close=100.0, stop=99.0, target=101.0, ts=cal.at(D, "10:40")))
+    assert reason is None and ok
+    o.cfg.smc.target_mode = "fixed"
+    assert o.ctx.bots["sig_smc"].target("QQQ", Side.CALL, 100.0, 99.0) == (101.0, "1R")

@@ -53,6 +53,8 @@ research:                   # no trade on a hunch: evidence from past sessions b
   zone_impulse_atr: 2.0     # supply/demand zone = quiet base before a move of 2+ ATRs (15m / 30m / 1h)
   # TJR's model is the same on every chart, and its setups are rare: score it across all tickers together.
   pooled_triggers: [smc_retrace, smc_bos]
+  edge_lookback_days: 20    # sessions of setups that count as evidence (5 was shown to be noise)
+  morning_study: "07:00"    # ET. The morning study clears or stands down each tower; nothing trades before it.
 
 smc:                        # TJR's boot camp model (docs/tjr-bootcamp/README.md)
   setup_timeframes: [5m, 15m]   # sweep + break read here; entered on a break one timeframe lower (5m->1m, 15m->5m)
@@ -61,7 +63,13 @@ smc:                        # TJR's boot camp model (docs/tjr-bootcamp/README.md
   min_rr: 1.0               # first target at least 1:1 (Day 37)
   max_setup_minutes: 120
   horizon_minutes: 120      # how long a past setup gets to reach its stop or target when scoring it
-  require_daily_bias: true  # trade only with the daily structure (Days 34-36)
+  require_daily_bias: true  # a daily bias must be known from daily candles before any entry
+  # Evidence (docs/research-log.md): over Jun-Aug 2026 the setups that ran AGAINST the daily bias with a
+  # fixed 1R target were the only variant that then held up on unseen Sep-Oct data (55% wins, +0.15R,
+  # PF 1.41, 44 trades). Small sample, ~800 variants tried: treat it as a lead, not proof. TJR teaches "with".
+  bias_mode: against
+  target_mode: fixed
+  target_r: 1.0
   require_sweep: true       # a break without a prior sweep of resting liquidity is not the model (Days 12, 30)
 
 news:                       # TJR Day 19: never trade CPI, PPI, FOMC or NFP days; wait after other big releases
@@ -119,9 +127,9 @@ workers:
     symbol: QQQ
     triggers: [smc_retrace]
     sizing: {mode: risk, risk: 300, max_contracts: 20}
-    exits: {measure: structure, max_hold_minutes: 120, exit_on_reversal: false}
-    dte: 0                  # video narration says "one day to expiration"; prices on screen match 0DTE
-    strike: atm
+    exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
+    strike: "delta:0.70"   # in the money: less time decay and spread per dollar of move (research report)
+    dte: 2                  # 2+ trading days out, not 0DTE: theta alone can hit a stop within an hour on 0DTE
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     daily_goal: 600
@@ -131,8 +139,9 @@ workers:
     symbol: QQQ
     triggers: [smc_retrace]
     sizing: {mode: risk, risk: 300, max_contracts: 20}
-    exits: {measure: structure, max_hold_minutes: 120, exit_on_reversal: false}
-    strike: atm
+    exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
+    strike: "delta:0.70"   # in the money: less time decay and spread per dollar of move (research report)
+    dte: 2                  # 2+ trading days out, not 0DTE: theta alone can hit a stop within an hour on 0DTE
     enabled: false          # same ticker as QQQ OG (see above)
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
@@ -143,8 +152,9 @@ workers:
     symbol: QQQ
     triggers: [smc_retrace]
     sizing: {mode: risk, risk: 300, max_contracts: 20}
-    exits: {measure: structure, max_hold_minutes: 120, exit_on_reversal: false}
-    strike: atm
+    exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
+    strike: "delta:0.70"   # in the money: less time decay and spread per dollar of move (research report)
+    dte: 2                  # 2+ trading days out, not 0DTE: theta alone can hit a stop within an hour on 0DTE
     enabled: false          # same ticker as QQQ OG (see above)
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
@@ -155,8 +165,9 @@ workers:
     symbol: SPY
     triggers: [smc_retrace]
     sizing: {mode: risk, risk: 300, max_contracts: 20}
-    exits: {measure: structure, max_hold_minutes: 120, exit_on_reversal: false}
-    strike: atm
+    exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
+    strike: "delta:0.70"   # in the money: less time decay and spread per dollar of move (research report)
+    dte: 2                  # 2+ trading days out, not 0DTE: theta alone can hit a stop within an hour on 0DTE
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     daily_goal: 600
@@ -166,8 +177,9 @@ workers:
     symbol: IWM
     triggers: [smc_retrace]
     sizing: {mode: risk, risk: 300, max_contracts: 20}
-    exits: {measure: structure, max_hold_minutes: 120, exit_on_reversal: false}
-    strike: atm
+    exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
+    strike: "delta:0.70"   # in the money: less time decay and spread per dollar of move (research report)
+    dte: 2                  # 2+ trading days out, not 0DTE: theta alone can hit a stop within an hour on 0DTE
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     daily_goal: 600
@@ -179,8 +191,9 @@ workers:
     symbol: NVDA
     triggers: [smc_retrace]
     sizing: {mode: risk, risk: 300, max_contracts: 10}
-    exits: {measure: structure, max_hold_minutes: 120, exit_on_reversal: false}
-    strike: atm
+    exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
+    strike: "delta:0.70"   # in the money: less time decay and spread per dollar of move (research report)
+    dte: 2                  # 2+ trading days out, not 0DTE: theta alone can hit a stop within an hour on 0DTE
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     daily_goal: 600
@@ -190,8 +203,9 @@ workers:
     symbol: TSLA
     triggers: [smc_retrace]
     sizing: {mode: risk, risk: 300, max_contracts: 10}
-    exits: {measure: structure, max_hold_minutes: 120, exit_on_reversal: false}
-    strike: atm
+    exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
+    strike: "delta:0.70"   # in the money: less time decay and spread per dollar of move (research report)
+    dte: 2                  # 2+ trading days out, not 0DTE: theta alone can hit a stop within an hour on 0DTE
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     daily_goal: 600
@@ -201,8 +215,9 @@ workers:
     symbol: AAPL
     triggers: [smc_retrace]
     sizing: {mode: risk, risk: 300, max_contracts: 10}
-    exits: {measure: structure, max_hold_minutes: 120, exit_on_reversal: false}
-    strike: atm
+    exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
+    strike: "delta:0.70"   # in the money: less time decay and spread per dollar of move (research report)
+    dte: 2                  # 2+ trading days out, not 0DTE: theta alone can hit a stop within an hour on 0DTE
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     daily_goal: 600
@@ -212,8 +227,9 @@ workers:
     symbol: META
     triggers: [smc_retrace]
     sizing: {mode: risk, risk: 300, max_contracts: 10}
-    exits: {measure: structure, max_hold_minutes: 120, exit_on_reversal: false}
-    strike: atm
+    exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
+    strike: "delta:0.70"   # in the money: less time decay and spread per dollar of move (research report)
+    dte: 2                  # 2+ trading days out, not 0DTE: theta alone can hit a stop within an hour on 0DTE
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     daily_goal: 600
@@ -223,8 +239,9 @@ workers:
     symbol: AMZN
     triggers: [smc_retrace]
     sizing: {mode: risk, risk: 300, max_contracts: 10}
-    exits: {measure: structure, max_hold_minutes: 120, exit_on_reversal: false}
-    strike: atm
+    exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
+    strike: "delta:0.70"   # in the money: less time decay and spread per dollar of move (research report)
+    dte: 2                  # 2+ trading days out, not 0DTE: theta alone can hit a stop within an hour on 0DTE
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     daily_goal: 600
@@ -234,8 +251,9 @@ workers:
     symbol: AMD
     triggers: [smc_retrace]
     sizing: {mode: risk, risk: 300, max_contracts: 10}
-    exits: {measure: structure, max_hold_minutes: 120, exit_on_reversal: false}
-    strike: atm
+    exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
+    strike: "delta:0.70"   # in the money: less time decay and spread per dollar of move (research report)
+    dte: 2                  # 2+ trading days out, not 0DTE: theta alone can hit a stop within an hour on 0DTE
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     daily_goal: 600
@@ -245,8 +263,9 @@ workers:
     symbol: MSFT
     triggers: [smc_retrace]
     sizing: {mode: risk, risk: 300, max_contracts: 10}
-    exits: {measure: structure, max_hold_minutes: 120, exit_on_reversal: false}
-    strike: atm
+    exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
+    strike: "delta:0.70"   # in the money: less time decay and spread per dollar of move (research report)
+    dte: 2                  # 2+ trading days out, not 0DTE: theta alone can hit a stop within an hour on 0DTE
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     daily_goal: 600

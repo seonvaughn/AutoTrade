@@ -7,6 +7,7 @@
   order_blocks      the move that swept liquidity right before a break of structure
   daily_bias        each morning: the daily structure (last daily break), the weekly, and the 4-hour trend
   news_calendar     no entries on CPI / PPI / FOMC / NFP days; wait after other high-impact releases
+  morning_study     07:00 ET every day: news, daily bias, the setup record; clears or stands down each ticker
   sig_smc           the entry models: sweep -> break -> retrace into an order block or gap in
                     discount/premium -> lower-timeframe break (smc_retrace); or the break itself (smc_bos)
 
@@ -19,8 +20,8 @@ from typing import Optional
 
 from ..core import calendar as cal
 from ..core.config import SMC_TRIGGERS
-from ..core.events import (BarClosed, BreakOfStructure, Candle, CandleClosed, LiquiditySweep, SessionEvent,
-                           SessionKind, Side, Signal)
+from ..core.events import (BarClosed, BreakOfStructure, Candle, CandleClosed, Heartbeat, LiquiditySweep,
+                           MorningPlan, SessionEvent, SessionKind, Side, Signal)
 from .base import Bot
 from .chart_bots import aggregate
 from .signal_bots import _ChartSignalBot
@@ -418,6 +419,56 @@ class NewsCalendarBot(Bot):
         return out
 
 
+class MorningStudyBot(Bot):
+    name = "morning_study"
+    skill = "07:00 ET study before the open: news, daily bias, the setup record; clear or stand down each ticker"
+
+    def setup(self) -> None:
+        self.plans: dict[tuple[str, date], MorningPlan] = {}
+        self.done: set[date] = set()
+        h, m = (int(x) for x in self.cfg.research.morning_study.split(":"))
+        self.at = (h, m)
+        self.on(Heartbeat, self.on_heartbeat)
+
+    def on_heartbeat(self, hb: Heartbeat) -> None:
+        d = hb.ts.date()
+        if d in self.done or (hb.ts.hour, hb.ts.minute) < self.at or not cal.is_trading_day(d):
+            return
+        self.done.add(d)
+        for sym in self.cfg.symbols:
+            self.plans[(sym, d)] = plan = self.study(sym, d, hb.ts)
+            self.emit(plan)
+
+    def study(self, sym: str, d: date, ts: datetime) -> MorningPlan:
+        reasons, details = [], {}
+        news = self.bot("news_calendar")
+        blocked = news.blocked(cal.at(d, "10:00")) if news else None
+        if blocked:
+            reasons.append(blocked)
+        db = self.bot("daily_bias")
+        bias = db.bias(sym, d) if db else {"D": "unknown"}
+        details["bias"] = {k: bias.get(k) for k in ("W", "D", "4h")}
+        if bias.get("D") == "unknown":
+            reasons.append("no daily bias: daily candles missing")
+        et = self.bot("edge_tracker")
+        triggers = sorted({t for w in self.cfg.workers if w.enabled and w.symbol == sym for t in w.triggers}
+                          & SMC_TRIGGERS)
+        for t in triggers:
+            st = et.stats(sym, t, d) if et else {"proven": False, "n": 0, "avg_r": 0.0}
+            details[t] = {k: st.get(k) for k in ("n", "wins", "win_rate", "avg_r", "proven")}
+            if not st.get("proven"):
+                reasons.append(f"{t} record not proven: {st.get('n', 0)} setups, avg {st.get('avg_r', 0.0):+.2f}R")
+        if news:
+            factor, why = news.size_factor(d)
+            details["size"] = factor
+            if factor < 1:
+                details["size_reason"] = why
+        return MorningPlan(ts, sym, d, not reasons, reasons, details)
+
+    def plan(self, sym: str, d: date) -> Optional[MorningPlan]:
+        return self.plans.get((sym, d))
+
+
 class SmartMoneyEntryBot(_ChartSignalBot):
     name = "sig_smc"
     skill = ("TJR entry: liquidity sweep, break of structure, retrace into an order block or gap in discount/premium, "
@@ -545,6 +596,9 @@ class SmartMoneyEntryBot(_ChartSignalBot):
         """Day 37: the first resting liquidity in the trade's direction at least min_rr away; if none is, the
         nearest one (the research gate then refuses the poor reward)."""
         risk = abs(entry - stop)
+        if self.cfg.smc.target_mode == "fixed" and risk > 0:
+            way = 1 if side is Side.CALL else -1
+            return entry + way * self.cfg.smc.target_r * risk, f"{self.cfg.smc.target_r:g}R"
         kind = "high" if side is Side.CALL else "low"
         liq = self.bot("liquidity")
         pools = [(p, tf) for p, k, tf in liq.resting(symbol, self.cfg.smc.target_timeframes) + liq.resting_prior_day(symbol)

@@ -25,8 +25,8 @@ from .bots.research_bots import EdgeTrackerBot, KeyLevelsBot, ResearchGateBot
 from .bots.signal_bots import (EMACrossBot, FibPullbackBot, ORBBot, StructureBreakBot, VWAPCrossBot,
                                ZoneReactionBot)
 from .bots.signal_filter_bot import SignalFilterBot
-from .bots.smc_bots import (DailyBiasBot, ImbalanceBot, LiquidityBot, MarketStructureBot, NewsCalendarBot,
-                            OrderBlockBot, SmartMoneyEntryBot)
+from .bots.smc_bots import (DailyBiasBot, ImbalanceBot, LiquidityBot, MarketStructureBot, MorningStudyBot,
+                            NewsCalendarBot, OrderBlockBot, SmartMoneyEntryBot)
 from .core import calendar as cal
 from .core.bus import EventBus
 from .core.config import Config
@@ -40,7 +40,7 @@ BOT_ORDER = [
     ATRBot, VWAPBot, EMABot, OpeningRangeBot, KeyLevelsBot, HigherTimeframeBot, StructureBot, ZonesBot,
     MarketStructureBot, LiquidityBot, ImbalanceBot, OrderBlockBot, DailyBiasBot, NewsCalendarBot,
     VWAPCrossBot, EMACrossBot, ORBBot, ZoneReactionBot, StructureBreakBot, FibPullbackBot, SmartMoneyEntryBot,
-    EdgeTrackerBot,
+    EdgeTrackerBot, MorningStudyBot,
     SignalFilterBot, ResearchGateBot, ContractSelectorBot, PositionSizerBot, RiskManagerBot, ExecutionBot,
     LedgerBot, ExitManagerBot, DailyGoalBot, ReconciliationBot,
     JournalBot, AnalystBot, AlertBot,

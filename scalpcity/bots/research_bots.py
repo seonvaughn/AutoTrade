@@ -23,6 +23,20 @@ from .base import Bot
 BUCKET_MINUTES = 15  # turning points are found on 15-minute bars
 
 
+def wanted_bias(cfg, side: Side) -> str | None:
+    """The daily bias an entry on `side` needs under smc.bias_mode (None: any direction)."""
+    with_trend = "bullish" if side is Side.CALL else "bearish"
+    mode = cfg.smc.bias_mode
+    if mode == "any":
+        return None
+    return with_trend if mode == "with" else ("bearish" if with_trend == "bullish" else "bullish")
+
+
+def edge_days(cfg, trigger: str) -> int:
+    r = cfg.research
+    return r.edge_lookback_days if trigger in SMC_TRIGGERS and r.edge_lookback_days else r.lookback_days
+
+
 def _lookback_start(today: date, days: int) -> date:
     d = today
     for _ in range(days):
@@ -175,19 +189,22 @@ class EdgeTrackerBot(Bot):
                    and cal.at(d, w.start_time) <= s.ts < cal.at(d, w.end_time) for w in self.cfg.workers):
             return False
         db = self.bot("daily_bias")
-        want = "bullish" if s.side is Side.CALL else "bearish"
-        return not self.cfg.smc.require_daily_bias or (db is not None and db.bias(s.symbol, d)["D"] == want)
+        bias = db.bias(s.symbol, d)["D"] if db else "unknown"
+        if self.cfg.smc.require_daily_bias and bias == "unknown":
+            return False
+        want = wanted_bias(self.cfg, s.side)
+        return want is None or bias == want
 
     def _record(self, p: dict, outcome: str, r: float) -> None:
         rows = self.results.setdefault((p["sym"], p["trigger"]), [])
         rows.append((p["day"], p["side"], outcome, round(r, 3), p.get("plan", True)))
-        oldest = _lookback_start(p["day"], self.cfg.research.lookback_days + 1)
+        oldest = _lookback_start(p["day"], edge_days(self.cfg, p["trigger"]) + 1)
         if rows[0][0] < oldest:
             rows[:] = [x for x in rows if x[0] >= oldest]
 
     def stats(self, symbol: str, trigger: str, today: date) -> dict:
         r = self.cfg.research
-        start = _lookback_start(today, r.lookback_days)
+        start = _lookback_start(today, edge_days(self.cfg, trigger))
         if trigger in r.pooled_triggers:             # one model, every market: score all tickers together
             pool = [x for (_, t), xs in self.results.items() if t == trigger for x in xs]
         else:
@@ -260,10 +277,10 @@ class ResearchGateBot(Bot):
             return ev, "not enough data yet (ATR still warming up)"
         if edge["n"] < r.min_samples:
             return ev, (f"not proven: only {edge['n']} past {sig.trigger} signals on {sig.symbol} in "
-                        f"{r.lookback_days} sessions (need {r.min_samples})")
+                        f"{edge_days(self.cfg, sig.trigger)} sessions (need {r.min_samples})")
         if not edge["proven"]:
             return ev, (f"no edge: {sig.trigger} on {sig.symbol} won {edge['wins']}/{edge['n']} "
-                        f"({edge['win_rate']:.0%}), avg {edge['avg_r']:+.2f}R over {r.lookback_days} sessions")
+                        f"({edge['win_rate']:.0%}), avg {edge['avg_r']:+.2f}R over {edge_days(self.cfg, sig.trigger)} sessions")
         against = "bearish" if sig.side is Side.CALL else "bullish"
         bad = [tf for tf, t in trends.items() if t == against and sig.stop is None]
         if bad:
@@ -298,16 +315,27 @@ class ResearchGateBot(Bot):
             return ev, why
         if sig.stop is None:
             return ev, None
+        ms = self.bot("morning_study")
+        plan = ms.plan(sig.symbol, sig.ts.date()) if ms else None
+        if plan is None:
+            return ev, "no morning study for today yet: nothing trades before it"
+        ev["morning"] = {"cleared": plan.cleared, "reasons": plan.reasons}
+        if not plan.cleared:
+            return ev, "stood down at the morning study: " + "; ".join(plan.reasons)
         m = self.cfg.smc
         db = self.bot("daily_bias")
         bias = db.bias(sig.symbol, sig.ts.date()) if db else {"D": "unknown"}
         ev["daily_bias"] = bias
         ev["setup"] = sig.setup
-        want = "bullish" if sig.side is Side.CALL else "bearish"
-        if m.require_daily_bias and bias["D"] != want:
-            what = "no daily bias yet (needs daily candles)" if bias["D"] == "unknown" else f"daily bias is {bias['D']}"
-            return ev, f"against the daily bias: {what}, this is a {want} setup"
-        against = [tf for tf in ("4h", "1h") if self._trend(sig.symbol, tf) == ("bearish" if want == "bullish" else "bullish")]
+        want = wanted_bias(self.cfg, sig.side)
+        setup = "bullish" if sig.side is Side.CALL else "bearish"
+        if m.require_daily_bias and bias["D"] == "unknown":
+            return ev, f"no daily bias yet (needs daily candles), this is a {setup} setup"
+        if want is not None and bias["D"] != want:
+            rule = "with" if m.bias_mode == "with" else "against"
+            return ev, f"daily bias is {bias['D']}: the plan trades {rule} the daily bias, this is a {setup} setup"
+        against = [] if m.bias_mode != "with" else \
+            [tf for tf in ("4h", "1h") if self._trend(sig.symbol, tf) == ("bearish" if want == "bullish" else "bullish")]
         setup_tf = (sig.setup or {}).get("setup_tf", "5m")
         if against:          # the lower timeframes are retracing the daily: only fade it from the right place
             if setup_tf in ("1m", "5m"):

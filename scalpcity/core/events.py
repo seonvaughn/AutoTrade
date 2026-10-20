@@ -106,6 +106,16 @@ class BreakOfStructure(Event):
 
 
 @dataclass
+class MorningPlan(Event):
+    """The morning study's verdict for one ticker: cleared to trade today, or stood down (with reasons)."""
+    symbol: str
+    day: date
+    cleared: bool
+    reasons: list[str]
+    details: dict
+
+
+@dataclass
 class LiquiditySweep(Event):
     """Price traded through a resting high ("high": buy-side liquidity) or low ("low": sell-side)."""
     symbol: str

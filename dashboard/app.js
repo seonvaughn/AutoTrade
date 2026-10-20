@@ -744,7 +744,11 @@ function tjrBlock(t) {
   const rng = t.daily_range ? `daily equilibrium ${px(t.daily_range.eq)} (range ${px(t.daily_range.bottom)} – ${px(t.daily_range.top)})` : "daily range not known yet";
   const setups = (t.setups || []).map((x) => `<tr><td>${x.tf}</td><td class="${x.side === "CALL" ? "pos" : "neg"}">${x.side === "CALL" ? "▲ long" : "▼ short"}</td>
     <td>${x.sweep ? `swept ${x.sweep.tf} ${px(x.sweep.level)}` : "no sweep"}</td><td>${x.armed ? `in ${esc((x.poi || []).join(", "))}, waiting for the break` : "waiting for the retrace"}</td><td class="mono">stop ${px(x.stop)}</td></tr>`).join("");
-  return `<h2 style="margin-top:16px">TJR read · daily bias first</h2>
+  const plan = t.plan
+    ? `<div class="${t.plan.cleared ? "pos" : "neg"}" style="margin:6px 0"><b>🌅 Morning study ${t.plan.at}: ${t.plan.cleared ? "cleared to trade today" : "standing down today"}</b>${t.plan.reasons.length ? ` · ${t.plan.reasons.map(esc).join("; ")}` : ""}</div>`
+    : `<div class="dim" style="margin:6px 0">🌅 Morning study runs at ${t.study_time || "07:00"} ET. Nothing trades before it.</div>`;
+  return `<h2 style="margin-top:16px">TJR read · daily bias first</h2>${plan}
+    <div class="dim">Plan: setups that run ${t.bias_mode === "against" ? "against" : t.bias_mode === "with" ? "with" : "either way to"} the daily bias.</div>
     <table><tbody><tr>${cells}</tr></tbody></table>
     <div class="dim" style="margin:6px 0">${rng}${t.news_today ? ` · <b class="neg">${esc(t.news_today)}</b>` : ""}</div>
     ${setups ? `<table><thead><tr><th>setup</th><th>side</th><th>sweep</th><th>stage</th><th></th></tr></thead><tbody>${setups}</tbody></table>` : `<div class="empty">No sweep-and-break setup open right now.</div>`}

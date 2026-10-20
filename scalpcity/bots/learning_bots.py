@@ -131,7 +131,8 @@ class LessonsBot(Bot):
     def _load(self) -> None:
         if self.path and self.path.exists():
             data = json.loads(self.path.read_text())
-            self.stats = {k: list(v) for k, v in data.get("stats", {}).items()}
+            # keys are "trigger|feature=value"; older books without the trigger can't be trusted: start over
+            self.stats = {k: list(v) for k, v in data.get("stats", {}).items() if "|" in k}
             self.verdicts = data.get("verdicts", {})
             self.seen = set(data.get("seen", []))
 

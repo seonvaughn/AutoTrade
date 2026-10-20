@@ -63,6 +63,19 @@ underlying, stop first when stop and target fall in the same minute, before opti
   It's now scoped per traded strategy.
 - **Crew:** focused on the options strategy; legacy trigger bots are built only when a tower trades them.
 
+## 2026-10-20: 15-minute opening range video (docs/videos/15m-opening-range.md)
+
+3,775 setups recorded Jun 1–Oct 15 on the 10 tickers, scored on the underlying (before option costs).
+
+| Model, the video's rules | Discovery Jun–Aug | Holdout Sep–Oct (run once) |
+|---|---|---|
+| Breakout (1m gap), 1:2 | n=350, 33% win, −0.01R, PF 0.99 | not run |
+| **Retest (his favourite), 1:2, until 11:30** | n=220, 37% win, +0.09R, PF 1.14 | **n=67, 33% win, −0.00R, PF 0.99** |
+| Reversal, to the opposite high/low of day | n=296, 30% win, −0.16R, PF 0.76 | not run |
+
+Verdict: no edge that survives out of sample. This matches the published ORB replications. The agent stays built and
+untraded, and its setups keep being scored.
+
 ## Outside evidence (docs/research/evidence-based-intraday-strategies.md)
 
 - No peer-reviewed or rigorous test shows an edge for ICT/smart-money concepts.

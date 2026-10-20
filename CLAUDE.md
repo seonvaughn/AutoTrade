@@ -25,7 +25,7 @@ towers trade now: start with its `README.md`).
 ```
 scalpcity/
   __main__.py        CLI: bots | backtest | replay | paper | live | download
-  orchestrator.py    builds and wires the 43 bots; BOT_ORDER = event delivery order (it matters)
+  orchestrator.py    builds and wires the 44 bots; BOT_ORDER = event delivery order (it matters)
   core/              events (the bus messages), bus (deterministic), config, calendar, costs, storage
   bots/              one skill per bot; they talk only through events on the bus
   brokers/           alpaca.py (paper/live), sim.py (backtest/replay)
@@ -94,7 +94,16 @@ To see the city working, use the `run-scalpcity` skill (`.claude/skills/run-scal
     (avg R), not win rate.
   - Exits: `exits.measure: structure`. Sizing: `mode: risk` from the chart stop × delta. `risk.max_trades_per_day`
     caps the whole account (1, TJR Day 29).
-  - Keep it faithful to the notes: when changing a rule, cite the day it comes from.
+  - `morning_study` (07:00 ET, `research.morning_study`): per ticker, news + daily bias + the setup record
+    (`research.edge_lookback_days`, 20) → `MorningPlan` cleared/stood down; `check_tjr` refuses TJR entries without
+    a cleared plan. `scripts/morning_autostart.sh install` starts the options city at 6:50 on the owner's Mac.
+  - `smc.bias_mode` with|against|any and `smc.target_mode` liquidity|fixed. Shipped: against + fixed 1R (the only
+    variant that held up on unseen months; see `docs/research-log.md`, which also counts every variant tried).
+  - Contract scout (`strike: auto`, `contract_selector.scout`): prices each liquid contract's gain/loss at the plan's
+    target/stop halfway through the hold (BS with the quote's IV, time decay included) minus the spread; picks the
+    best ratio; refuses if none profits at the target.
+  - Keep it faithful to the notes: when changing a rule, cite the day it comes from. When the evidence overrides
+    TJR, say so and log it in `docs/research-log.md` (discovery period, holdout once, trial count).
 - **Never price a backtest fill from a stale option trade.** `SimChain._from_last_trade` moves the
   last real trade by delta × the stock's move since that trade. Using the last trade as-is let the
   bots "buy" at prices from before the move that fired the signal: a losing strategy showed
@@ -196,5 +205,14 @@ To see the city working, use the `run-scalpcity` skill (`.claude/skills/run-scal
     them. As coded, the model is break-even-to-negative before option costs.
   - Next experiments: closer targets (TJR TP1 = first liquidity one timeframe up), the time limit, and whether
     "prominent" liquidity (the prior day only, or 1h+) changes it.
+- **2026-10-20 evidence-based settings** (docs/research-log.md, docs/research/evidence-based-intraday-strategies.md):
+  - Discovery Jun–Aug (~810 variants), then a holdout on Sep–Oct run once.
+  - Variant A (retrace against the daily bias, 1R, hold to close): 44 holdout setups, 55% wins, +0.15R, PF 1.41 on
+    the underlying. Not statistically significant (t ≈ 1.6).
+  - Backtest Sep 1–Oct 15 with real option bars (delta 0.70, 2 DTE, morning study): 4 trades, 2 wins, −$233. The
+    morning study stood the towers down on most days because the 20-session record wasn't proven.
+  - A 65% win rate is only reachable with 0.5R targets, and those lose (PF 0.98). Don't chase it.
+- The owner wants a high win rate and no guessing. Report win rate AND expectancy/PF; never tune toward a win-rate
+  number alone.
 - Towers now trade `smc_retrace` only, 09:35–11:00, one trade a day for the account, $300 risk (1%). QQQ TREND and QQQ
   are disabled (same ticker as QQQ OG).

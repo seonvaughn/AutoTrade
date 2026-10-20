@@ -25,7 +25,7 @@ towers trade now: start with its `README.md`).
 ```
 scalpcity/
   __main__.py        CLI: bots | backtest | replay | paper | live | download
-  orchestrator.py    builds and wires the 44 bots; BOT_ORDER = event delivery order (it matters)
+  orchestrator.py    builds and wires the 46 bots; BOT_ORDER = event delivery order (it matters)
   core/              events (the bus messages), bus (deterministic), config, calendar, costs, storage
   bots/              one skill per bot; they talk only through events on the bus
   brokers/           alpaca.py (paper/live), sim.py (backtest/replay)
@@ -102,6 +102,13 @@ To see the city working, use the `run-scalpcity` skill (`.claude/skills/run-scal
   - Contract scout (`strike: auto`, `contract_selector.scout`): prices each liquid contract's gain/loss at the plan's
     target/stop halfway through the hold (BS with the quote's IV, time decay included) minus the spread; picks the
     best ratio; refuses if none profits at the target.
+  - Learning (bots/learning_bots.py):
+    - `trade_review` writes a review after every trade. Wins say what went right. Losses are classified:
+      setup_failed, stop_too_tight (target reached after the stop), out_of_time, option_costs.
+    - `lessons` tallies every in-plan scored setup (`SetupScored` from the edge tracker) by feature. A feature becomes
+      an avoid/favor rule only with n ≥ `research.lessons_min_n` (30) and |t| ≥ `lessons_t` (2.5). The gate enforces
+      avoid rules. The book persists at `research.lessons_path` and dedupes replayed history. Never make a rule from
+      one trade.
   - Keep it faithful to the notes: when changing a rule, cite the day it comes from. When the evidence overrides
     TJR, say so and log it in `docs/research-log.md` (discovery period, holdout once, trial count).
 - **Never price a backtest fill from a stale option trade.** `SimChain._from_last_trade` moves the
@@ -211,7 +218,9 @@ To see the city working, use the `run-scalpcity` skill (`.claude/skills/run-scal
     the underlying. Not statistically significant (t ≈ 1.6).
   - Backtest Sep 1–Oct 15 with real option bars (delta 0.70, 2 DTE, morning study): 4 trades, 2 wins, −$233. The
     morning study stood the towers down on most days because the 20-session record wasn't proven.
-  - A 65% win rate is only reachable with 0.5R targets, and those lose (PF 0.98). Don't chase it.
+  - Backtests with every agent on (real option bars): Jun–Aug 16 trades, 43.8% wins, −$227, PF 0.87; Sep–Oct 4 trades
+    −$233 (0.70 delta) / −$529 (scout). Not profitable yet; see docs/research-log.md.
+- A 65% win rate is only reachable with 0.5R targets, and those lose (PF 0.98). Don't chase it.
 - The owner wants a high win rate and no guessing. Report win rate AND expectancy/PF; never tune toward a win-rate
   number alone.
 - Towers now trade `smc_retrace` only, 09:35–11:00, one trade a day for the account, $300 risk (1%). QQQ TREND and QQQ

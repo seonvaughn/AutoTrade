@@ -6,7 +6,7 @@ from scalpcity.bots.smc_bots import Structure, daily_structure, find_gaps
 from scalpcity.core import calendar as cal
 from scalpcity.core.config import WorkerConfig
 from scalpcity.core.events import (BreakOfStructure, Candle, CandleClosed, EntryVetoed, Heartbeat, LiquiditySweep,
-                                   MorningPlan,
+                                   MorningPlan, SessionEvent, SessionKind,
                                    ResearchCleared, Side, Signal, WorkerSignal)
 from scalpcity.orchestrator import Orchestrator
 from tests.conftest import make_cfg
@@ -320,3 +320,64 @@ def test_contract_scout_prefers_the_contract_that_keeps_the_plan():
     tiny = Signal(ts, "QQQ", "smc_retrace", Side.CALL, 700.0, 699.5, 0.5, stop=698.0, target=700.05)
     best, why = sel.scout([good], tiny, w)
     assert best is None and "keeps the planned move" in why      # a 5-cent target can't pay a 10-cent spread
+
+
+# ---------------------------------------------------------------- learning from wins and losses
+def _trade(o, side=Side.CALL, close=100.0, stop=99.0, target=101.0):
+    from scalpcity.core.events import OptionContract, PositionOpened
+    sig = Signal(cal.at(D, "10:00"), "QQQ", "smc_retrace", side, close, 99.5, 0.5, stop=stop, target=target,
+                 setup={"setup_tf": "5m", "sweep": {"tf": "15m"}, "poi": ["5m order block"]})
+    con = OptionContract("QQQ", D, 100, side)
+    emit(o, PositionOpened(sig.ts, "QQQ OG", con, 1, 2.0, sig))
+    return con
+
+
+def test_reviews_say_what_went_right_and_what_went_wrong():
+    from scalpcity.core.events import SessionEvent, SessionKind, Tick, TradeClosed, TradeReview
+    o = system()
+    reviews = collect(o, TradeReview)
+    con = _trade(o)
+    emit(o, Tick(cal.at(D, "10:20"), "QQQ", 101.1, 1),
+         TradeClosed(cal.at(D, "10:21"), "QQQ OG", con, 1, 2.0, 2.6, 60.0, "target", cal.at(D, "10:00")))
+    assert reviews[-1].won and reviews[-1].verdict == "target" and "What went right" in reviews[-1].text
+    con = _trade(o)                                             # stopped, then the target printed: stop too tight
+    emit(o, Tick(cal.at(D, "11:00"), "QQQ", 98.9, 1),
+         TradeClosed(cal.at(D, "11:01"), "QQQ OG", con, 1, 2.0, 1.5, -50.0, "stop", cal.at(D, "10:00")),
+         Tick(cal.at(D, "12:00"), "QQQ", 101.2, 1))
+    assert reviews[-1].verdict == "stop_too_tight" and "stop was too tight" in reviews[-1].text
+    con = _trade(o)                                             # stopped and never recovered: the setup failed
+    emit(o, Tick(cal.at(D, "13:00"), "QQQ", 98.8, 1),
+         TradeClosed(cal.at(D, "13:01"), "QQQ OG", con, 1, 2.0, 1.4, -60.0, "stop", cal.at(D, "10:00")),
+         SessionEvent(cal.at(D, "16:00"), SessionKind.CLOSED, D))
+    assert reviews[-1].verdict == "setup_failed" and "setup failed" in reviews[-1].text
+    con = _trade(o)                                             # the stock got there, the option still lost
+    emit(o, Tick(cal.at(D, "14:00"), "QQQ", 101.05, 1),
+         TradeClosed(cal.at(D, "14:30"), "QQQ OG", con, 1, 2.0, 1.9, -10.0, "time", cal.at(D, "10:00")))
+    assert reviews[-1].verdict == "option_costs"
+
+
+def test_lessons_need_repeated_evidence_before_becoming_rules(tmp_path):
+    from scalpcity.core.events import SetupScored
+    o = system()
+    o.cfg.research.lessons_path = str(tmp_path / "lessons.json")
+    book = o.ctx.bots["lessons"]
+    book.setup()
+    f = {"ticker": "QQQ", "hour": "10:00-11:00", "zone": "gap"}
+
+    def scored(i, r, zone="gap"):
+        return SetupScored(cal.at(D, "10:00") + timedelta(minutes=i), "QQQ", "smc_retrace", Side.CALL,
+                           "loss" if r < 0 else "win", r, {**f, "zone": zone}, True)
+    emit(o, *[scored(i, -1.0 if i % 4 else 0.5) for i in range(10)])
+    assert book.check(f) is None                                # 10 cases: not enough to make a rule
+    emit(o, *[scored(i, -1.0 if i % 4 else 0.5) for i in range(10, 40)])
+    emit(o, *[scored(i, -1.0 if i % 4 else 0.5) for i in range(0, 5)])   # replayed history counts once
+    emit(o, *[scored(100 + i, 1.0 if i % 4 else -1.0, "order block") for i in range(40)])
+    assert book.stats["zone=gap"][0] == 40 and book.stats["ticker=QQQ"][0] == 80
+    rule = book.check(f)
+    assert rule and "zone = gap lost" in rule                   # 40 cases, clearly negative: avoid
+    assert book.check({**f, "zone": "order block"}) is None
+    emit(o, SessionEvent(cal.at(D, "16:00"), SessionKind.CLOSED, D))
+    again = system()
+    again.cfg.research.lessons_path = o.cfg.research.lessons_path
+    again.ctx.bots["lessons"].setup()
+    assert again.ctx.bots["lessons"].check(f)                   # the book survives a restart

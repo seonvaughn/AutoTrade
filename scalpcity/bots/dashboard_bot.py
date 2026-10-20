@@ -326,6 +326,7 @@ class DashboardBot(Bot):
         return {"plan": {"at": plan.ts.strftime("%H:%M"), "cleared": plan.cleared, "reasons": plan.reasons}
                 if plan else None, "study_time": self.cfg.research.morning_study,
                 "bias_mode": self.cfg.smc.bias_mode,
+                "lessons": self.bot("lessons").lessons()[:12] if self.bot("lessons") else [],
                 "bias": {k: bias.get(k) for k in ("W", "D", "4h")}, "daily_range": bias.get("D_range"),
                 "structure": {tf: ms.trend(sym, tf) for tf in ("1h", "15m", "5m", "1m")}, "setups": setups,
                 "news_today": news.blocked(cal.at(day, "10:00")) if news else None,

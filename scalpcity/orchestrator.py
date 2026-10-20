@@ -16,6 +16,7 @@ from .bots.chart_bots import HigherTimeframeBot, StructureBot, TimeframeBot, Zon
 from .bots.clock_bot import ClockBot
 from .bots.decision_bots import ContractSelectorBot, DailyGoalBot, PositionSizerBot, RiskManagerBot
 from .bots.execution_bots import ExecutionBot, ExitManagerBot, ReconciliationBot
+from .bots.learning_bots import LessonsBot, TradeReviewBot
 from .bots.indicator_bots import ATRBot, EMABot, OpeningRangeBot, VWAPBot
 from .bots.ops_bots import AlertBot, HealthBot
 from .bots.options_chain_bot import OptionsChainBot
@@ -42,7 +43,7 @@ BOT_ORDER = [
     VWAPCrossBot, EMACrossBot, ORBBot, ZoneReactionBot, StructureBreakBot, FibPullbackBot, SmartMoneyEntryBot,
     EdgeTrackerBot, MorningStudyBot,
     SignalFilterBot, ResearchGateBot, ContractSelectorBot, PositionSizerBot, RiskManagerBot, ExecutionBot,
-    LedgerBot, ExitManagerBot, DailyGoalBot, ReconciliationBot,
+    LedgerBot, ExitManagerBot, TradeReviewBot, LessonsBot, DailyGoalBot, ReconciliationBot,
     JournalBot, AnalystBot, AlertBot,
 ]
 

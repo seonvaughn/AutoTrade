@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from ..core.events import (DailySummary, EntryVetoed, KeyLevels, MorningPlan, ResearchCleared, Fill, KillSwitch, Leaderboard, OptionQuote, OrderRejected, OrderSide,
+from ..core.events import (DailySummary, EntryVetoed, KeyLevels, MorningPlan, TradeReview, ResearchCleared, Fill, KillSwitch, Leaderboard, OptionQuote, OrderRejected, OrderSide,
                            PnLUpdate, PositionOpened, Purpose, SessionEvent, SessionKind, SetupUpdate, SignalSkipped,
                            ContractRejected, Thought, TradeClosed, WorkerStats, WorkerStatus)
 from ..core.costs import QTY_EPS, fmt_qty
@@ -119,6 +119,7 @@ class JournalBot(Bot):
         self.on(EntryVetoed, self.on_vetoed)
         self.on(ResearchCleared, self.on_cleared)
         self.on(MorningPlan, self.on_plan)
+        self.on(TradeReview, lambda e: self.say(e.ts, e.worker, e.text, "good" if e.won else "bad"))
 
     def on_plan(self, e: MorningPlan) -> None:
         b = e.details.get("bias", {})

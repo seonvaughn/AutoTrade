@@ -15,8 +15,8 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from ..core import calendar as cal
-from ..core.events import (CandleClosed, EntryVetoed, KeyLevel, KeyLevels, ResearchCleared, Side, Signal,
-                           WorkerSignal)
+from ..core.events import (CandleClosed, EntryVetoed, KeyLevel, KeyLevels, ResearchCleared, SetupScored, Side,
+                           Signal, WorkerSignal)
 from ..core.config import SMC_TRIGGERS
 from .base import Bot
 
@@ -30,6 +30,25 @@ def wanted_bias(cfg, side: Side) -> str | None:
     if mode == "any":
         return None
     return with_trend if mode == "with" else ("bearish" if with_trend == "bullish" else "bullish")
+
+
+def features_of(bot, s: Signal) -> dict:
+    """What a setup looked like when it fired: the facts the lessons book learns from (no outcomes)."""
+    setup = s.setup or {}
+    f = {"ticker": s.symbol, "side": s.side.value, "trigger": s.trigger,
+         "hour": f"{s.ts:%H}:00-{s.ts.hour + 1:02d}:00", "weekday": f"{s.ts:%A}"}
+    if setup:
+        f["setup_tf"] = setup.get("setup_tf")
+        f["sweep_tf"] = (setup.get("sweep") or {}).get("tf") or "none"
+        poi = setup.get("poi") or []
+        f["zone"] = ("order block + gap" if any("order" in x for x in poi) and any("gap" in x for x in poi)
+                     else "order block" if any("order" in x for x in poi) else "gap" if poi else "none")
+    db = bot.bot("daily_bias")
+    if db:
+        d = db.bias(s.symbol, s.ts.date())["D"]
+        trend = "bullish" if s.side is Side.CALL else "bearish"
+        f["vs_daily_bias"] = "unknown" if d == "unknown" else ("with" if d == trend else "against")
+    return f
 
 
 def edge_days(cfg, trigger: str) -> int:
@@ -149,7 +168,7 @@ class EdgeTrackerBot(Bot):
                  "stop": s.close - way * r.stop_atr * s.atr, "win_r": r.target_atr / r.stop_atr,
                  "until": s.ts + timedelta(minutes=r.horizon_minutes)}
         p.update(sym=s.symbol, trigger=s.trigger, side=s.side.value, day=s.ts.date(), entry=s.close, way=way,
-                 last=s.close, plan=self.in_plan(s))
+                 last=s.close, plan=self.in_plan(s), ts=s.ts, features=features_of(self, s))
         self.pending.append(p)
 
     def on_candle(self, e: CandleClosed) -> None:
@@ -196,6 +215,9 @@ class EdgeTrackerBot(Bot):
         return want is None or bias == want
 
     def _record(self, p: dict, outcome: str, r: float) -> None:
+        if "ts" in p:
+            self.emit(SetupScored(p["ts"], p["sym"], p["trigger"], Side(p["side"]), outcome, round(r, 3),
+                                  p["features"], p.get("plan", True)))
         rows = self.results.setdefault((p["sym"], p["trigger"]), [])
         rows.append((p["day"], p["side"], outcome, round(r, 3), p.get("plan", True)))
         oldest = _lookback_start(p["day"], edge_days(self.cfg, p["trigger"]) + 1)
@@ -322,6 +344,10 @@ class ResearchGateBot(Bot):
         ev["morning"] = {"cleared": plan.cleared, "reasons": plan.reasons}
         if not plan.cleared:
             return ev, "stood down at the morning study: " + "; ".join(plan.reasons)
+        lessons = self.bot("lessons")
+        lesson = lessons.check(features_of(self, sig)) if lessons else None
+        if lesson:
+            return ev, lesson
         m = self.cfg.smc
         db = self.bot("daily_bias")
         bias = db.bias(sig.symbol, sig.ts.date()) if db else {"D": "unknown"}

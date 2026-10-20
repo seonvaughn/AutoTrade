@@ -31,6 +31,19 @@ underlying, stop first when stop and target fall in the same minute, before opti
     accumulates.
   - C shows why the bots don't chase a win-rate target: 66% wins, still losing.
 
+## 2026-10-20: backtests of the shipped settings (real option bars, every agent on)
+
+| Run | Trades | Win | Net | PF |
+|---|---|---|---|---|
+| Jun 1–Aug 31, 0.70 delta, 2 DTE | 16 | 43.8% | −$227 | 0.87 |
+| Sep 1–Oct 15, 0.70 delta, 2 DTE | 4 | 50% | −$233 | 0.63 |
+| Sep 1–Oct 15, contract scout (`strike: auto`) | 4 | 25% | −$529 | 0.25 |
+
+- 20 trades over 4½ months: about −$460, PF about 0.83. The +0.12R edge on the stock doesn't survive option
+  spread and time decay.
+- The morning study stood down most days: 329 entries refused for lack of a proven 20-session record.
+- Scout versus fixed delta: 4 vs 4 trades, no conclusion possible.
+
 ## Outside evidence (docs/research/evidence-based-intraday-strategies.md)
 
 - No peer-reviewed or rigorous test shows an edge for ICT/smart-money concepts.

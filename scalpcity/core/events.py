@@ -116,6 +116,28 @@ class MorningPlan(Event):
 
 
 @dataclass
+class SetupScored(Event):
+    """The edge tracker finished scoring one past or live setup on the underlying (for the lessons book)."""
+    symbol: str
+    trigger: str
+    side: "Side"
+    outcome: str        # win | loss | timeout
+    r: float
+    features: dict
+    plan: bool          # the trading plan would have taken it
+
+
+@dataclass
+class TradeReview(Event):
+    """The trade reviewer's write-up of one closed trade: what went right or wrong, and why."""
+    worker: str
+    won: bool
+    verdict: str        # target | setup_failed | stop_too_tight | time | option_costs | ...
+    text: str
+    features: dict
+
+
+@dataclass
 class LiquiditySweep(Event):
     """Price traded through a resting high ("high": buy-side liquidity) or low ("low": sell-side)."""
     symbol: str

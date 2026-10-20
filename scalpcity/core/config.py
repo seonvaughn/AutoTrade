@@ -104,6 +104,11 @@ class ResearchConfig:
     # Five sessions of pooled setups is too few to tell an edge from noise (docs/research-log.md).
     edge_lookback_days: int = 0
     morning_study: str = "07:00"      # the daily study before the open; no entries until it has cleared the tower
+    # Lessons book (bots/learning_bots.py): a feature becomes an avoid/favor rule only with this many in-plan
+    # cases and |t| at least this big. Saved here between runs ("" = keep in memory only).
+    lessons_path: str = "data/lessons.json"
+    lessons_min_n: int = 30
+    lessons_t: float = 2.5
 
 
 @dataclass

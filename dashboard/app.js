@@ -752,6 +752,8 @@ function tjrBlock(t) {
     <table><tbody><tr>${cells}</tr></tbody></table>
     <div class="dim" style="margin:6px 0">${rng}${t.news_today ? ` · <b class="neg">${esc(t.news_today)}</b>` : ""}</div>
     ${setups ? `<table><thead><tr><th>setup</th><th>side</th><th>sweep</th><th>stage</th><th></th></tr></thead><tbody>${setups}</tbody></table>` : `<div class="empty">No sweep-and-break setup open right now.</div>`}
+    ${(t.lessons || []).length ? `<h2 style="margin-top:12px">Lessons book · learned from every setup and trade</h2><table><tbody>${t.lessons.map((l) =>
+      `<tr><td class="${l.kind === "avoid" ? "neg" : "pos"}">${l.kind === "avoid" ? "avoid" : "favor"}</td><td>${esc(l.feature.replace(/_/g, " "))} = ${esc(l.value)}</td><td class="r">${l.avg_r >= 0 ? "+" : ""}${l.avg_r.toFixed(2)}R over ${l.n}</td></tr>`).join("")}</tbody></table>` : `<div class="dim" style="margin-top:6px">Lessons book: no rule yet (a lesson needs 30+ cases and a clear result).</div>`}
     ${(t.news_week || []).length ? `<div class="dim" style="margin-top:6px">News this week: ${t.news_week.map(esc).join(" · ")}</div>` : ""}`;
 }
 

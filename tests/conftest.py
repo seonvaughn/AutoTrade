@@ -21,6 +21,7 @@ def make_cfg(**over) -> Config:
     cfg.dashboard.enabled = False
     cfg.risk.max_daily_loss = 100_000
     cfg.research.enabled = False  # mechanics tests; the research gate has its own tests
+    cfg.research.lessons_path = ""  # tests never touch the real lessons book
     validate(cfg)
     return cfg
 

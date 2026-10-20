@@ -33,6 +33,7 @@ risk:                       # account-wide limits (apply to all workers together
   max_premium: 15.0
   pdt_guard: true
   max_trades_per_day: 2     # entries across ALL towers per day (TJR Day 29: 1-2 a day); 2 x $300 risk < $900 daily limit
+  max_delta_leverage: 20    # options course (Greeks): stock-equivalent exposure of open options <= 20x equity (a backstop)
 
 research:                   # no trade on a hunch: evidence from past sessions before every entry
   enabled: true

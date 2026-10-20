@@ -111,6 +111,12 @@ To see the city working, use the `run-scalpcity` skill (`.claude/skills/run-scal
       one trade.
   - Keep it faithful to the notes: when changing a rule, cite the day it comes from. When the evidence overrides
     TJR, say so and log it in `docs/research-log.md` (discovery period, holdout once, trial count).
+- **Options course (docs/options-course/README.md, SkyView Trading playlist).** Entries try a limit at the mid first,
+  then the ask (`broker.entry_mid_first`; the sim never fills at the mid, so backtests are unchanged).
+  `risk.max_delta_leverage` caps the stock-equivalent exposure of open options (|delta| × qty × multiplier × price)
+  at that many times equity. The journal explains each pick: break-even, delta (≈ chance ITM), decay per hour. The
+  course itself argues against buying options for direction (it sells premium); that, and debit verticals, are
+  documented as owner decisions, not built.
 - **Never price a backtest fill from a stale option trade.** `SimChain._from_last_trade` moves the
   last real trade by delta × the stock's move since that trade. Using the last trade as-is let the
   bots "buy" at prices from before the move that fired the signal: a losing strategy showed

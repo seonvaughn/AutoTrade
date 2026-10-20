@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from ..core.events import (DailySummary, EntryVetoed, KeyLevels, MorningPlan, TradeReview, ResearchCleared, Fill, KillSwitch, Leaderboard, OptionQuote, OrderRejected, OrderSide,
+from ..core.events import (ContractSelected, DailySummary, EntryVetoed, KeyLevels, MorningPlan, TradeReview, ResearchCleared, Fill, KillSwitch, Leaderboard, OptionQuote, OrderRejected, OrderSide,
                            PnLUpdate, PositionOpened, Purpose, SessionEvent, SessionKind, SetupUpdate, SignalSkipped,
                            ContractRejected, Thought, TradeClosed, WorkerStats, WorkerStatus)
 from ..core.costs import QTY_EPS, fmt_qty
@@ -113,6 +113,7 @@ class JournalBot(Bot):
         self.busy: set[str] = set()
         self.on(SetupUpdate, self.on_setup)
         self.on(SignalSkipped, self.on_skipped)
+        self.on(ContractSelected, lambda e: e.note and self.say(e.ts, e.worker, f"picked {e.quote.contract.occ}: {e.note}"))
         self.on(ContractRejected, lambda e: self.say(e.ts, e.worker, f"passed on {e.signal.side.arrow} {e.signal.side.value}: {e.reason}", "bad"))
         self.on(OrderRejected, lambda e: e.intent.purpose is Purpose.ENTRY and self.say(e.ts, e.intent.worker, f"order blocked: {e.reason}", "bad"))
         self.on(PositionOpened, self.on_opened)

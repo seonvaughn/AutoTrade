@@ -333,6 +333,7 @@ class ContractSelected(Event):
     worker: str
     signal: Signal
     quote: OptionQuote
+    note: str = ""                # why this contract: break-even, delta (≈ chance ITM), time decay
 
 
 @dataclass

@@ -14,7 +14,7 @@ from .base import Bot
 
 class ExecutionBot(Bot):
     name = "execution"
-    skill = "Send approved orders to the broker and report fills (entries: limit at ask; exits: walk down to market)"
+    skill = "Send approved orders to the broker and report fills (entries: limit at the mid, then the ask; exits: walk down to market)"
 
     def setup(self) -> None:
         self.on(OrderApproved, self.on_approved)
@@ -37,12 +37,17 @@ class ExecutionBot(Bot):
     async def _run(self, intent: OrderIntent, inline: bool) -> None:
         broker = self.ctx.broker
         exit_ = intent.purpose is Purpose.EXIT
-        attempts = 1 + (self.cfg.broker.exit_retries if exit_ else 0)
+        mid_first = not exit_ and self.cfg.broker.entry_mid_first and intent.contract.kind == "option"
+        attempts = 1 + (self.cfg.broker.exit_retries if exit_ else 1 if mid_first else 0)
         remaining, filled, notional, last_oid, last_err = intent.qty, 0, 0.0, "", "not filled"
         for attempt in range(attempts):
             limit = intent.limit
             if exit_:
                 limit = None if attempt == attempts - 1 else await self._exit_limit(intent, attempt)
+            elif mid_first and attempt == 0:
+                limit = await self._entry_mid(intent)
+                if limit is None:
+                    continue
             try:
                 last_oid = await broker.submit(intent.contract, intent.side, remaining, limit)
                 st = await self._wait(last_oid)
@@ -56,7 +61,7 @@ class ExecutionBot(Bot):
                 filled += st.filled_qty
                 notional += st.filled_qty * st.avg_price
                 remaining -= st.filled_qty
-            if remaining <= QTY_EPS or not exit_:
+            if remaining <= QTY_EPS or (not exit_ and attempt == attempts - 1):
                 last_err = f"order {st.status}"
                 break
             last_err = f"order {st.status}"
@@ -66,6 +71,14 @@ class ExecutionBot(Bot):
                                  last_oid), inline)
         if remaining > QTY_EPS:
             await self._out(OrderFailed(self._now(intent, inline), intent, last_err, filled), inline)
+
+    async def _entry_mid(self, intent: OrderIntent):
+        """The first entry try: the mid of the current quote, never above the approved limit (the ask)."""
+        q = await self.bot("options_chain").quote(intent.contract)
+        if q is None or q.bid <= 0 or q.ask <= q.bid:
+            return None
+        mid = round((q.bid + q.ask) / 2, 2)
+        return mid if mid < intent.limit else None
 
     async def _exit_limit(self, intent: OrderIntent, attempt: int):
         q = await self.bot("options_chain").quote(intent.contract)

@@ -61,7 +61,27 @@ class ContractSelectorBot(Bot):
         elif q.bid <= 0 or q.spread_pct * 100 > risk.max_spread_pct:
             self.emit(ContractRejected(sig.ts, ws.worker, sig, f"spread too wide ({q.bid:.2f}/{q.ask:.2f})"))
         else:
-            self.emit(ContractSelected(sig.ts, ws.worker, sig, q))
+            self.emit(ContractSelected(sig.ts, ws.worker, sig, q, self.explain(q, sig)))
+
+    @staticmethod
+    def explain(q, sig) -> str:
+        """The options course's checklist for a bought option (docs/options-course/README.md): the break-even at
+        expiry (strike ± premium), delta (P&L per $1 and roughly the chance of finishing in the money) and what an
+        hour of time decay costs with the stock standing still."""
+        c = q.contract
+        if c.kind != "option":
+            return ""
+        is_call = c.right is Side.CALL
+        be = c.strike + q.ask if is_call else c.strike - q.ask
+        parts = [f"break-even ${be:,.2f} at expiry ({(be - sig.close) / sig.close * 100:+.2f}% from ${sig.close:,.2f})"]
+        if q.delta is not None:
+            parts.append(f"delta {abs(q.delta):.2f} (≈{abs(q.delta) * 100:.0f}% chance ITM)")
+        mins = cal.minutes_to_expiry(sig.ts, c.expiry)
+        if q.iv and mins > 60:
+            hour = bs_price(sig.close, c.strike, mins, q.iv, is_call) - bs_price(sig.close, c.strike, mins - 60, q.iv,
+                                                                                 is_call)
+            parts.append(f"time decay ≈${hour * c.multiplier:,.0f}/contract per hour if the stock stands still")
+        return "; ".join(parts)
 
     def scout(self, quotes, sig, w):
         """strike: auto. For every listed contract, price the trade's own plan: how the option's value changes if the
@@ -154,6 +174,7 @@ class RiskManagerBot(Bot):
         self.problems: dict[str, str] = {}     # health source -> reason
         self.clocked_out: set[str] = set()
         self.exposure: dict[str, float] = {}   # worker -> premium at risk (open + pending)
+        self.delta_usd: dict[str, float] = {}  # worker -> stock-equivalent exposure of its option (open + pending)
         self.entries_today = 0
         self.on(OrderIntent, self.on_intent)
         self.on(KillSwitch, lambda e: setattr(self, "kill", e.engaged))
@@ -162,7 +183,7 @@ class RiskManagerBot(Bot):
         self.on(OrderFailed, self.on_failed)
         self.on(PositionOpened, lambda e: self.exposure.__setitem__(e.worker,
                                                                     e.qty * e.entry_price * e.contract.multiplier))
-        self.on(TradeClosed, lambda e: self.exposure.pop(e.worker, None))
+        self.on(TradeClosed, self.on_closed)
         self.on(SessionEvent, self.on_session)
 
     def on_status(self, e: WorkerStatus) -> None:
@@ -179,23 +200,53 @@ class RiskManagerBot(Bot):
         else:
             self.problems[e.source] = e.reason
 
+    def on_closed(self, e: TradeClosed) -> None:
+        self.exposure.pop(e.worker, None)
+        self.delta_usd.pop(e.worker, None)
+
     def on_failed(self, e: OrderFailed) -> None:
         if e.intent.purpose is Purpose.ENTRY and e.filled_qty == 0:
             self.exposure.pop(e.intent.worker, None)
+            self.delta_usd.pop(e.intent.worker, None)
 
     async def on_intent(self, o: OrderIntent) -> None:
         if o.purpose is Purpose.EXIT:
             self.emit(OrderApproved(o.ts, o))
             return
-        reason = await self._check(o)
+        reason, delta_usd = await self._check(o)
         if reason:
             self.emit(OrderRejected(o.ts, o, reason))
         else:
             self.exposure[o.worker] = o.qty * o.limit * o.contract.multiplier
+            self.delta_usd[o.worker] = delta_usd
             self.entries_today += 1
             self.emit(OrderApproved(o.ts, o))
 
-    async def _check(self, o: OrderIntent) -> str | None:
+    async def _check(self, o: OrderIntent) -> tuple[str | None, float]:
+        reason = await self._rules(o)
+        if reason:
+            return reason, 0.0
+        return await self._delta(o)
+
+    async def _delta(self, o: OrderIntent) -> tuple[str | None, float]:
+        """Position delta as stock exposure (options course, Greeks: "make sure that number is in line with our risk
+        tolerance"). A 0.70-delta call on 10 contracts of a $500 stock moves like $350k of stock."""
+        r = self.cfg.risk
+        if not r.max_delta_leverage or o.contract.kind != "option" or o.signal is None:
+            return None, 0.0
+        q = await self.bot("options_chain").quote(o.contract) if self.bot("options_chain") else None
+        if q is None or q.delta is None:
+            return None, 0.0
+        mine = abs(q.delta) * o.qty * o.contract.multiplier * o.signal.close
+        acct = await self.ctx.broker.account()
+        cap = r.max_delta_leverage * acct.equity
+        total = sum(self.delta_usd.values()) + mine
+        if total > cap:
+            return (f"position delta ≈ ${total:,.0f} of stock would pass {r.max_delta_leverage:g}× equity "
+                    f"(${cap:,.0f})"), 0.0
+        return None, mine
+
+    async def _rules(self, o: OrderIntent) -> str | None:
         r = self.cfg.risk
         clock = self.bot("clock")
         cost = o.qty * o.limit * o.contract.multiplier

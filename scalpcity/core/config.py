@@ -78,6 +78,9 @@ class RiskConfig:
     max_premium: float = 15.0
     pdt_guard: bool = True
     max_trades_per_day: int = 0       # entries across the whole account per day (0 = no account-wide cap)
+    # Position delta as stock exposure (options course: keep it "in line with our risk tolerance"): |delta| x qty x
+    # multiplier x price, all open options together, may not pass this many times account equity (0 = no cap).
+    max_delta_leverage: float = 0.0
 
 
 @dataclass
@@ -182,6 +185,9 @@ class BrokerConfig:
     name: str = "sim"                 # sim | alpaca
     order_timeout_seconds: float = 8.0
     exit_retries: int = 3
+    # Entries: a limit at the mid first, then at the ask if it doesn't fill within order_timeout_seconds (options
+    # course: price at the mid, step toward the ask). The simulator only fills at the ask, so backtests don't change.
+    entry_mid_first: bool = True
 
 
 @dataclass

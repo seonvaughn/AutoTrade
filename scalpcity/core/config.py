@@ -9,9 +9,10 @@ from typing import Any
 import yaml
 
 VALID_TRIGGERS = {"vwap_cross", "ema50_cross", "orb", "zone_reaction", "structure_break", "fib_pullback",
-                  "smc_retrace", "smc_bos", "orb15_breakout", "orb15_retest", "orb15_reversal"}
+                  "smc_retrace", "smc_bos", "orb15_breakout", "orb15_retest", "orb15_reversal",
+                  "orb_ntz_retest"}
 SMC_TRIGGERS = {"smc_retrace", "smc_bos"}
-ORB15_TRIGGERS = {"orb15_breakout", "orb15_retest", "orb15_reversal"}
+ORB15_TRIGGERS = {"orb15_breakout", "orb15_retest", "orb15_reversal", "orb_ntz_retest"}
 PLANNED_TRIGGERS = SMC_TRIGGERS | ORB15_TRIGGERS   # signals that carry their own stop and target
 VALID_TIMEFRAMES = {"5m", "15m", "30m", "1h", "4h", "D", "W"}
 VALID_MODES = {"backtest", "replay", "paper", "live"}

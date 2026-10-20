@@ -322,7 +322,8 @@ function renderLeft(s) {
 const TRIGGER = { vwap_cross: "VWAP cross", ema50_cross: "EMA50 cross", orb: "15-min range break",
   zone_reaction: "Supply/demand zone (30s)", structure_break: "Structure break (5m)", fib_pullback: "Fib pullback (1m)",
   smc_retrace: "TJR: sweep → break → retrace → break", smc_bos: "TJR: sweep → break",
-  orb15_breakout: "15m range breakout (gap)", orb15_retest: "15m range retest", orb15_reversal: "15m range reversal" };
+  orb15_breakout: "15m range breakout (gap)", orb15_retest: "15m range retest", orb15_reversal: "15m range reversal",
+  orb_ntz_retest: "ORB retest outside the no-trading zone" };
 
 function renderRight(s) {
   const w = s.workers.find((x) => x.name === store.selected) || s.workers[0];

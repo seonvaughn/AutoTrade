@@ -35,7 +35,8 @@ TRIGGER_BOTS = {"vwap_cross": ["vwap", "sig_vwap_cross"], "ema50_cross": ["ema50
                 "fib_pullback": ["structure", "sig_fib_pullback"],
                 "smc_retrace": ["market_structure", "liquidity", "imbalances", "order_blocks", "daily_bias",
                                 "news_calendar", "sig_smc"],
-                "smc_bos": ["market_structure", "liquidity", "order_blocks", "daily_bias", "news_calendar", "sig_smc"]}
+                "smc_bos": ["market_structure", "liquidity", "order_blocks", "daily_bias", "news_calendar", "sig_smc"],
+                "orb_ntz_retest": ["news_calendar", "sig_orb_ntz"]}
 STUDY_TIMEFRAMES = ["5m", "15m", "30m", "1h", "4h", "D", "W"]
 SHARED_CREW = ["price_feed", "candles", "timeframes", "atr", "key_levels", "htf_levels", "edge_tracker",
                "research_gate",

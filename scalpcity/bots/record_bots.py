@@ -14,7 +14,8 @@ TRIGGER_LABEL = {"vwap_cross": "VWAP", "ema50_cross": "EMA50", "orb": "opening r
                  "zone_reaction": "supply/demand zone", "structure_break": "5m structure break",
                  "fib_pullback": "Fibonacci pullback", "smc_retrace": "TJR sweep + break + retrace",
                  "smc_bos": "TJR sweep + break", "orb15_breakout": "15m range breakout",
-                 "orb15_retest": "15m range retest", "orb15_reversal": "15m range reversal"}
+                 "orb15_retest": "15m range retest", "orb15_reversal": "15m range reversal",
+                 "orb_ntz_retest": "ORB retest outside the NTZ"}
 
 WHY = {"vwap_cross": "VWAP cross", "ema50_cross": "EMA50 cross", "orb": "range breakout",
        "zone_reaction": "bounce off a supply/demand zone", "structure_break": "5m break of structure",
@@ -23,7 +24,8 @@ WHY = {"vwap_cross": "VWAP cross", "ema50_cross": "EMA50 cross", "orb": "range b
        "smc_bos": "liquidity sweep then break of structure",
        "orb15_breakout": "5m close beyond the 15m opening range, 1m displacement gap",
        "orb15_retest": "5m close beyond the 15m opening range, retest held, 1m break",
-       "orb15_reversal": "failed 15m range break, 1m break back the other way"}
+       "orb15_reversal": "failed 15m range break, 1m break back the other way",
+       "orb_ntz_retest": "15m range broken outside the no-trading zone with the 200 SMA, retest held"}
 
 
 def money(x: float) -> str:

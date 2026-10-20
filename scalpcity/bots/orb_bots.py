@@ -163,3 +163,159 @@ class OpeningRange15Bot(_ChartSignalBot):
     def range(self, symbol: str) -> Optional[dict]:
         s = self.st.get(symbol)
         return {k: s[k] for k in ("hi", "lo", "locked", "dir", "failed")} if s else None
+
+
+NTZ_TFS = (2, 5, 10)            # minutes: the chart he watches 09:30-10:00, 10:00-11:00, after 11:00
+SMA_LEN = 200
+LEVEL_SESSIONS = 10             # sessions of hourly closes searched for "bends"
+
+
+class OpeningRangeNTZBot(_ChartSignalBot):
+    """docs/videos/boring-orb-ntz.md: the 15-minute opening range, traded only outside the no-trading zone, with the
+    200 SMA, on the retest.
+
+      NTZ        min(pre-market low, yesterday's low) .. max(pre-market high, yesterday's high)
+      chart      2m before 10:00, 5m until 11:00, 10m after; its 200 SMA (carried across days) is the direction
+      break      a candle on that chart closes beyond both the opening range and the NTZ, on the SMA's side
+      retest     a later candle touches that edge and closes back beyond it: enter at its close (the next candle's
+                 open: "you jump a candle after the retest"); a close back inside cancels the break
+      stop       the other side of the opening range
+      target     the nearest hourly level (a bend in hourly closes) at least smc.min_rr x risk away; none, no trade
+    One signal per ticker per day. Without pre-market data there is no NTZ, and no signal."""
+    name = "sig_orb_ntz"
+    skill = ("15m opening range retest, only outside the no-trading zone (pre-market + yesterday's range) and on "
+             "the 200 SMA's side; stop across the range, target the next hourly level")
+    trigger = "orb_ntz_retest"
+
+    def setup(self) -> None:
+        super().setup()
+        self.pre: dict[str, dict[str, list[float]]] = {}       # symbol -> day -> [pre-market high, low]
+        self.bars: dict[tuple[str, int], Optional[list]] = {}  # (symbol, tf) -> building [start, o, h, l, c]
+        self.closes: dict[tuple[str, int], list[float]] = {}   # (symbol, tf) -> last SMA_LEN closes
+        self.hours: dict[str, list[tuple[date, float]]] = {}   # symbol -> hourly closes (day, close)
+        self.hour_bar: dict[str, list] = {}
+        self.st: dict[str, dict] = {}
+        self.on(CandleClosed, self.on_minute)
+
+    async def start(self) -> None:
+        from ..data.premarket import load_premarket
+        if self.ctx.span:
+            first, last = self.ctx.span
+            source = self.cfg.data.source
+        elif self.ctx.live:                                    # the studied history; today's comes at the open
+            last = cal.now_et().date() - timedelta(days=1)
+            first, source = last - timedelta(days=100), "alpaca"
+        else:
+            return
+        self.pre = await load_premarket(self.cfg.symbols, first, last, source, self.cfg.data.daily_dir)
+
+    async def _fetch_today(self, d: date) -> None:
+        from ..data.premarket import load_premarket
+        got = await load_premarket(self.cfg.symbols, d, d, "alpaca", self.cfg.data.daily_dir)
+        for sym, days in got.items():
+            self.pre.setdefault(sym, {}).update(days)
+
+    def ntz(self, symbol: str, d: date) -> Optional[tuple[float, float]]:
+        s = self.st.get(symbol)
+        pm = self.pre.get(symbol, {}).get(d.isoformat())
+        if not s or s["day"] != d or not pm or s["yhi"] is None:
+            return None
+        return min(pm[1], s["ylo"]), max(pm[0], s["yhi"])
+
+    def on_minute(self, e: CandleClosed) -> None:
+        c = e.candle
+        d = c.start.date()
+        open_ = cal.session_open(d)
+        m = int((c.start - open_).total_seconds() // 60)
+        if m < 0:
+            return
+        s = self.st.get(c.symbol)
+        if s is None or s["day"] != d:
+            if self.ctx.live and not e.backfill and d.isoformat() not in self.pre.get(c.symbol, {}) \
+                    and (s is None or s["day"] != d):
+                self.spawn(self._fetch_today(d))
+            y = (s["hi"], s["lo"]) if s else (None, None)
+            s = self.st[c.symbol] = {"day": d, "hi": c.high, "lo": c.low, "yhi": y[0], "ylo": y[1], "orh": None,
+                                     "orl": None, "locked": False, "dir": None, "fired": False}
+        s["hi"], s["lo"] = max(s["hi"], c.high), min(s["lo"], c.low)
+        if m < RANGE_MINUTES:
+            s["orh"] = c.high if s["orh"] is None else max(s["orh"], c.high)
+            s["orl"] = c.low if s["orl"] is None else min(s["orl"], c.low)
+            s["locked"] = m == RANGE_MINUTES - 1
+        self._hourly(c, m)
+        for n in NTZ_TFS:
+            bar = self._aggregate(c, m, n)
+            if bar is None:
+                continue
+            closes = self.closes.setdefault((c.symbol, n), [])
+            closes.append(bar.close)
+            del closes[:-SMA_LEN]
+            start_m = m + 1 - n
+            active = 2 if start_m < 30 else 5 if start_m < 90 else 10
+            if n == active and len(closes) == SMA_LEN:
+                self._on_bar(e, bar, sum(closes) / SMA_LEN, s)
+
+    def _aggregate(self, c: Candle, m: int, n: int) -> Optional[Candle]:
+        key = (c.symbol, n)
+        b = self.bars.get(key)
+        if m % n == 0 or b is None:
+            b = self.bars[key] = [c.start, c.open, c.high, c.low, c.close]
+        else:
+            b[2], b[3], b[4] = max(b[2], c.high), min(b[3], c.low), c.close
+        if (m + 1) % n:
+            return None
+        self.bars[key] = None
+        return Candle(c.symbol, b[0], b[1], b[2], b[3], b[4], 0)
+
+    def _hourly(self, c: Candle, m: int) -> None:
+        last_minute = c.start + timedelta(minutes=1) >= cal.session_close(c.start.date())
+        if (m + 1) % 60 == 0 or last_minute:
+            hours = self.hours.setdefault(c.symbol, [])
+            hours.append((c.start.date(), c.close))
+            days = sorted({d for d, _ in hours})
+            if len(days) > LEVEL_SESSIONS + 1:
+                keep = days[-(LEVEL_SESSIONS + 1):]
+                self.hours[c.symbol] = [h for h in hours if h[0] >= keep[0]]
+
+    def levels(self, symbol: str, d: date) -> list[float]:
+        """Hourly levels: every bend (a local high or low) of the hourly line chart, sessions before `d`."""
+        closes = [cl for day, cl in self.hours.get(symbol, []) if day < d]
+        return [closes[i] for i in range(1, len(closes) - 1)
+                if (closes[i] - closes[i - 1]) * (closes[i + 1] - closes[i]) < 0]
+
+    def _on_bar(self, e: CandleClosed, bar: Candle, sma: float, s: dict) -> None:
+        if not s["locked"] or s["fired"]:
+            return
+        box = self.ntz(bar.symbol, bar.start.date())
+        if box is None:
+            return
+        up, dn = max(s["orh"], box[1]), min(s["orl"], box[0])
+        tol = 0.1 * (self.atr.get(bar.symbol) or 0.0)
+        if s["dir"] is None:
+            if bar.close > up and bar.close > sma:
+                s["dir"] = Side.CALL
+            elif bar.close < dn and bar.close < sma:
+                s["dir"] = Side.PUT
+            return
+        way = 1 if s["dir"] is Side.CALL else -1
+        edge = up if way > 0 else dn
+        if way * (bar.close - edge) <= 0:
+            s["dir"] = None                                    # closed back inside: the break failed
+            return
+        touched = bar.low <= edge + tol if way > 0 else bar.high >= edge - tol
+        if not touched or way * (bar.close - sma) <= 0:
+            return
+        stop = s["orl"] if way > 0 else s["orh"]
+        risk = abs(bar.close - stop)
+        room = self.cfg.smc.min_rr * risk
+        ahead = sorted((lv for lv in self.levels(bar.symbol, bar.start.date()) if way * (lv - bar.close) >= room),
+                       key=lambda lv: abs(lv - bar.close))
+        if risk <= 0 or not ahead:
+            return
+        s["fired"] = True
+        tf = int((e.ts - bar.start).total_seconds() // 60)
+        info = {"model": self.trigger, "setup_tf": "15m", "entry_tf": f"{tf}m", "range": [s["orl"], s["orh"]],
+                "ntz": list(box), "sma200": round(sma, 2)}
+        self.emit(Signal(e.ts, bar.symbol, self.trigger, s["dir"], bar.close, edge, self.atr.get(bar.symbol),
+                         ema50=self.ema.get(bar.symbol), vwap=self.vwap.get(bar.symbol), backfill=e.backfill,
+                         stop=stop, target=ahead[0], setup=info))

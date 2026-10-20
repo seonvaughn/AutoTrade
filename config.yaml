@@ -53,7 +53,7 @@ research:                   # no trade on a hunch: evidence from past sessions b
   align_timeframes: [15m, 1h, D]
   zone_impulse_atr: 2.0     # supply/demand zone = quiet base before a move of 2+ ATRs (15m / 30m / 1h)
   # TJR's model is the same on every chart, and its setups are rare: score it across all tickers together.
-  pooled_triggers: [smc_retrace, smc_bos]
+  pooled_triggers: [smc_retrace, smc_bos, orb_ntz_retest]
   edge_lookback_days: 60    # sessions of setups that count as evidence. 5 and 20 were shown to select noise
                             # (a short-record gate lowered results in both test periods: docs/research-log.md)
   morning_study: "07:00"    # ET. The morning study clears or stands down each tower; nothing trades before it.
@@ -127,7 +127,7 @@ dashboard:
 workers:
   - name: QQQ OG
     symbol: QQQ
-    triggers: [smc_retrace]
+    triggers: [smc_retrace, orb_ntz_retest]
     sizing: {mode: risk, risk: 300, max_contracts: 20}
     exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
     strike: auto            # contract scout: prices the trade plan on every contract, keeps the best after costs
@@ -139,7 +139,7 @@ workers:
 
   - name: QQQ TREND
     symbol: QQQ
-    triggers: [smc_retrace]
+    triggers: [smc_retrace, orb_ntz_retest]
     sizing: {mode: risk, risk: 300, max_contracts: 20}
     exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
     strike: auto            # contract scout: prices the trade plan on every contract, keeps the best after costs
@@ -152,7 +152,7 @@ workers:
 
   - name: QQQ
     symbol: QQQ
-    triggers: [smc_retrace]
+    triggers: [smc_retrace, orb_ntz_retest]
     sizing: {mode: risk, risk: 300, max_contracts: 20}
     exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
     strike: auto            # contract scout: prices the trade plan on every contract, keeps the best after costs
@@ -165,7 +165,7 @@ workers:
 
   - name: SPY
     symbol: SPY
-    triggers: [smc_retrace]
+    triggers: [smc_retrace, orb_ntz_retest]
     sizing: {mode: risk, risk: 300, max_contracts: 20}
     exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
     strike: auto            # contract scout: prices the trade plan on every contract, keeps the best after costs
@@ -177,7 +177,7 @@ workers:
 
   - name: IWM
     symbol: IWM
-    triggers: [smc_retrace]
+    triggers: [smc_retrace, orb_ntz_retest]
     sizing: {mode: risk, risk: 300, max_contracts: 20}
     exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
     strike: auto            # contract scout: prices the trade plan on every contract, keeps the best after costs
@@ -191,7 +191,7 @@ workers:
   # the bots buy the next day's contract). Small budgets: these premiums run $3-15 per share at the money.
   - name: NVDA
     symbol: NVDA
-    triggers: [smc_retrace]
+    triggers: [smc_retrace, orb_ntz_retest]
     sizing: {mode: risk, risk: 300, max_contracts: 10}
     exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
     strike: auto            # contract scout: prices the trade plan on every contract, keeps the best after costs
@@ -203,7 +203,7 @@ workers:
 
   - name: TSLA
     symbol: TSLA
-    triggers: [smc_retrace]
+    triggers: [smc_retrace, orb_ntz_retest]
     sizing: {mode: risk, risk: 300, max_contracts: 10}
     exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
     strike: auto            # contract scout: prices the trade plan on every contract, keeps the best after costs
@@ -215,7 +215,7 @@ workers:
 
   - name: AAPL
     symbol: AAPL
-    triggers: [smc_retrace]
+    triggers: [smc_retrace, orb_ntz_retest]
     sizing: {mode: risk, risk: 300, max_contracts: 10}
     exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
     strike: auto            # contract scout: prices the trade plan on every contract, keeps the best after costs
@@ -227,7 +227,7 @@ workers:
 
   - name: META
     symbol: META
-    triggers: [smc_retrace]
+    triggers: [smc_retrace, orb_ntz_retest]
     sizing: {mode: risk, risk: 300, max_contracts: 10}
     exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
     strike: auto            # contract scout: prices the trade plan on every contract, keeps the best after costs
@@ -239,7 +239,7 @@ workers:
 
   - name: AMZN
     symbol: AMZN
-    triggers: [smc_retrace]
+    triggers: [smc_retrace, orb_ntz_retest]
     sizing: {mode: risk, risk: 300, max_contracts: 10}
     exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
     strike: auto            # contract scout: prices the trade plan on every contract, keeps the best after costs
@@ -251,7 +251,7 @@ workers:
 
   - name: AMD
     symbol: AMD
-    triggers: [smc_retrace]
+    triggers: [smc_retrace, orb_ntz_retest]
     sizing: {mode: risk, risk: 300, max_contracts: 10}
     exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
     strike: auto            # contract scout: prices the trade plan on every contract, keeps the best after costs
@@ -263,7 +263,7 @@ workers:
 
   - name: MSFT
     symbol: MSFT
-    triggers: [smc_retrace]
+    triggers: [smc_retrace, orb_ntz_retest]
     sizing: {mode: risk, risk: 300, max_contracts: 10}
     exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
     strike: auto            # contract scout: prices the trade plan on every contract, keeps the best after costs

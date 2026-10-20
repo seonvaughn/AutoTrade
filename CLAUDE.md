@@ -231,3 +231,8 @@ To see the city working, use the `run-scalpcity` skill (`.claude/skills/run-scal
   number alone.
 - Towers now trade `smc_retrace` only, 09:35–11:00, one trade a day for the account, $300 risk (1%). QQQ TREND and QQQ
   are disabled (same ticker as QQQ OG).
+- **2026-10-20:** TJR with all fixes, Jun 1–Oct 15, real option bars: −$151, 45 trades, 48.9% wins, PF 0.97.
+  New trigger `orb_ntz_retest` (docs/videos/boring-orb-ntz.md; `data/premarket.py` caches pre-market ranges):
+  discovery +0.094R/PF 1.31 (n 98), holdout −0.022R/PF 0.93 (n 29), not confirmed. Towers now paper-trade
+  `[smc_retrace, orb_ntz_retest]` behind the gate. The owner is starting live paper trading on the Mac.
+

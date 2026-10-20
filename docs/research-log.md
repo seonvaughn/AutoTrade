@@ -96,3 +96,21 @@ untraded, and its setups keep being scored.
 | Aligned exits | −$5,444 | 0.53 |
 | Six strategies plus gate | −$5,423 | 0.58 |
 | TJR "with bias" Sep–Oct | −$412 | 0.15 (4 trades) |
+
+## 2026-10-20: TJR with every fix, and the "boring strategy" video (NTZ + 200 SMA + ORB retest)
+- **TJR backtest, Jun 1 – Oct 15, real option bars, all agents on** (bias "against", 60-session evidence window,
+  lessons book, contract scout, 2 trades a day): **−$151, 45 trades, 48.9% wins, profit factor 0.97**, max drawdown
+  $1,402. Close to break-even; still not profitable.
+- **`orb_ntz_retest`** (docs/videos/boring-orb-ntz.md), scored on the underlying at its own stop (other side of the
+  range) and target (next hourly level ≥ 1R), held to the close at most, news days out:
+  | Period | Window | n | Win | Avg R | PF |
+  |---|---|---|---|---|---|
+  | Discovery (May 15 – Aug 31) | 09:45–11:00 | 98 | 59% | +0.094 | 1.31 |
+  | Discovery | 09:45–15:30 | 137 | 54% | +0.047 | 1.17 |
+  | **Holdout (Sep 1 – Oct 15), run once** | 09:45–11:00 | 29 | 52% | **−0.022** | **0.93** |
+  - The holdout did not confirm the discovery edge. 60- and 120-minute time limits looked better on the holdout
+    (+0.11R, +0.07R), but they were picked after seeing it, so they don't count as evidence.
+  - Before option costs; 29 holdout setups is a small sample either way.
+- **Decision:** the towers paper-trade both `smc_retrace` and `orb_ntz_retest`, behind the research gate (each
+  needs positive pooled expectancy over the past 60 sessions). Paper trading is the forward test; neither is
+  proven.

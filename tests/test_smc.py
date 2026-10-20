@@ -297,3 +297,26 @@ def test_bias_mode_against_trades_pullbacks_and_fixed_targets():
     assert reason is None and ok
     o.cfg.smc.target_mode = "fixed"
     assert o.ctx.bots["sig_smc"].target("QQQ", Side.CALL, 100.0, 99.0) == (101.0, "1R")
+
+
+def test_contract_scout_prefers_the_contract_that_keeps_the_plan():
+    from scalpcity.core.events import OptionContract, OptionQuote
+    o = system()
+    sel = o.ctx.bots["contract_selector"]
+    w = o.cfg.workers[0]
+    ts = cal.at(D, "10:00")
+    sig = Signal(ts, "QQQ", "smc_retrace", Side.CALL, 700.0, 699.5, 0.5, stop=698.0, target=702.0)
+
+    def q(strike, days, bid, ask, delta):
+        exp = cal.next_trading_day(D, days)
+        return OptionQuote(ts, OptionContract("QQQ", exp, strike, Side.CALL), bid, ask, delta, 0.2, 700.0)
+    lottery = q(706, 0, 0.05, 0.08, 0.10)          # far out of the money: filtered (delta < 0.30)
+    wide = q(695, 2, 6.00, 8.50, 0.75)             # spread too wide to keep the move
+    good = q(695, 2, 7.20, 7.30, 0.75)
+    best, why = sel.scout([lottery, wide, good], sig, w)
+    assert best is good and why == ""
+    best, why = sel.scout([lottery, wide], sig, w)
+    assert best is None and "no liquid contract" in why          # the wide one fails the 12% spread limit
+    tiny = Signal(ts, "QQQ", "smc_retrace", Side.CALL, 700.0, 699.5, 0.5, stop=698.0, target=700.05)
+    best, why = sel.scout([good], tiny, w)
+    assert best is None and "keeps the planned move" in why      # a 5-cent target can't pay a 10-cent spread

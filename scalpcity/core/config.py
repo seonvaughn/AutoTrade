@@ -50,7 +50,8 @@ class WorkerConfig:
     symbol: str
     triggers: list[str] = field(default_factory=lambda: ["vwap_cross", "ema50_cross", "orb"])
     dte: int = 0                      # 0 = same-day expiry, 1 = next trading day
-    strike: str = "atm"               # atm | otm1 | itm1 | delta:0.40
+    strike: str = "atm"               # atm | otm1 | itm1 | delta:0.40 | auto (contract scout picks)
+    auto_expiries: int = 3            # strike: auto compares this many listed expiries from `dte` on
     sizing: Sizing = field(default_factory=Sizing)
     exits: ExitRules = field(default_factory=ExitRules)
     daily_goal: float = 1000.0        # clock out once realized P&L reaches this
@@ -289,8 +290,10 @@ def validate(cfg: Config) -> None:
             raise ValueError(f"{w.name}: exits.measure must be premium|underlying|structure")
         if w.sizing.mode not in {"fixed", "budget", "risk"}:
             raise ValueError(f"{w.name}: sizing.mode must be fixed|budget|risk")
-        if not (w.strike in {"atm", "otm1", "itm1"} or w.strike.startswith("delta:")):
-            raise ValueError(f"{w.name}: strike must be atm|otm1|itm1|delta:<x>")
+        if not (w.strike in {"atm", "otm1", "itm1", "auto"} or w.strike.startswith("delta:")):
+            raise ValueError(f"{w.name}: strike must be atm|otm1|itm1|delta:<x>|auto")
+        if w.auto_expiries < 1:
+            raise ValueError(f"{w.name}: auto_expiries must be >= 1")
     if cfg.mode == "live":
         if not cfg.live_trading_enabled:
             raise ValueError("mode=live requires live_trading_enabled: true in config")

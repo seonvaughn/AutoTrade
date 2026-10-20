@@ -128,8 +128,8 @@ workers:
     triggers: [smc_retrace]
     sizing: {mode: risk, risk: 300, max_contracts: 20}
     exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
-    strike: "delta:0.70"   # in the money: less time decay and spread per dollar of move (research report)
-    dte: 2                  # 2+ trading days out, not 0DTE: theta alone can hit a stop within an hour on 0DTE
+    strike: auto            # contract scout: prices the trade plan on every contract, keeps the best after costs
+    dte: 1                  # scout compares the next 3 listed expiries from 1 day out (0DTE theta is the worst)
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     daily_goal: 600
@@ -140,8 +140,8 @@ workers:
     triggers: [smc_retrace]
     sizing: {mode: risk, risk: 300, max_contracts: 20}
     exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
-    strike: "delta:0.70"   # in the money: less time decay and spread per dollar of move (research report)
-    dte: 2                  # 2+ trading days out, not 0DTE: theta alone can hit a stop within an hour on 0DTE
+    strike: auto            # contract scout: prices the trade plan on every contract, keeps the best after costs
+    dte: 1                  # scout compares the next 3 listed expiries from 1 day out (0DTE theta is the worst)
     enabled: false          # same ticker as QQQ OG (see above)
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
@@ -153,8 +153,8 @@ workers:
     triggers: [smc_retrace]
     sizing: {mode: risk, risk: 300, max_contracts: 20}
     exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
-    strike: "delta:0.70"   # in the money: less time decay and spread per dollar of move (research report)
-    dte: 2                  # 2+ trading days out, not 0DTE: theta alone can hit a stop within an hour on 0DTE
+    strike: auto            # contract scout: prices the trade plan on every contract, keeps the best after costs
+    dte: 1                  # scout compares the next 3 listed expiries from 1 day out (0DTE theta is the worst)
     enabled: false          # same ticker as QQQ OG (see above)
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
@@ -166,8 +166,8 @@ workers:
     triggers: [smc_retrace]
     sizing: {mode: risk, risk: 300, max_contracts: 20}
     exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
-    strike: "delta:0.70"   # in the money: less time decay and spread per dollar of move (research report)
-    dte: 2                  # 2+ trading days out, not 0DTE: theta alone can hit a stop within an hour on 0DTE
+    strike: auto            # contract scout: prices the trade plan on every contract, keeps the best after costs
+    dte: 1                  # scout compares the next 3 listed expiries from 1 day out (0DTE theta is the worst)
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     daily_goal: 600
@@ -178,8 +178,8 @@ workers:
     triggers: [smc_retrace]
     sizing: {mode: risk, risk: 300, max_contracts: 20}
     exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
-    strike: "delta:0.70"   # in the money: less time decay and spread per dollar of move (research report)
-    dte: 2                  # 2+ trading days out, not 0DTE: theta alone can hit a stop within an hour on 0DTE
+    strike: auto            # contract scout: prices the trade plan on every contract, keeps the best after costs
+    dte: 1                  # scout compares the next 3 listed expiries from 1 day out (0DTE theta is the worst)
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     daily_goal: 600
@@ -192,8 +192,8 @@ workers:
     triggers: [smc_retrace]
     sizing: {mode: risk, risk: 300, max_contracts: 10}
     exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
-    strike: "delta:0.70"   # in the money: less time decay and spread per dollar of move (research report)
-    dte: 2                  # 2+ trading days out, not 0DTE: theta alone can hit a stop within an hour on 0DTE
+    strike: auto            # contract scout: prices the trade plan on every contract, keeps the best after costs
+    dte: 1                  # scout compares the next 3 listed expiries from 1 day out (0DTE theta is the worst)
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     daily_goal: 600
@@ -204,8 +204,8 @@ workers:
     triggers: [smc_retrace]
     sizing: {mode: risk, risk: 300, max_contracts: 10}
     exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
-    strike: "delta:0.70"   # in the money: less time decay and spread per dollar of move (research report)
-    dte: 2                  # 2+ trading days out, not 0DTE: theta alone can hit a stop within an hour on 0DTE
+    strike: auto            # contract scout: prices the trade plan on every contract, keeps the best after costs
+    dte: 1                  # scout compares the next 3 listed expiries from 1 day out (0DTE theta is the worst)
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     daily_goal: 600
@@ -216,8 +216,8 @@ workers:
     triggers: [smc_retrace]
     sizing: {mode: risk, risk: 300, max_contracts: 10}
     exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
-    strike: "delta:0.70"   # in the money: less time decay and spread per dollar of move (research report)
-    dte: 2                  # 2+ trading days out, not 0DTE: theta alone can hit a stop within an hour on 0DTE
+    strike: auto            # contract scout: prices the trade plan on every contract, keeps the best after costs
+    dte: 1                  # scout compares the next 3 listed expiries from 1 day out (0DTE theta is the worst)
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     daily_goal: 600
@@ -228,8 +228,8 @@ workers:
     triggers: [smc_retrace]
     sizing: {mode: risk, risk: 300, max_contracts: 10}
     exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
-    strike: "delta:0.70"   # in the money: less time decay and spread per dollar of move (research report)
-    dte: 2                  # 2+ trading days out, not 0DTE: theta alone can hit a stop within an hour on 0DTE
+    strike: auto            # contract scout: prices the trade plan on every contract, keeps the best after costs
+    dte: 1                  # scout compares the next 3 listed expiries from 1 day out (0DTE theta is the worst)
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     daily_goal: 600
@@ -240,8 +240,8 @@ workers:
     triggers: [smc_retrace]
     sizing: {mode: risk, risk: 300, max_contracts: 10}
     exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
-    strike: "delta:0.70"   # in the money: less time decay and spread per dollar of move (research report)
-    dte: 2                  # 2+ trading days out, not 0DTE: theta alone can hit a stop within an hour on 0DTE
+    strike: auto            # contract scout: prices the trade plan on every contract, keeps the best after costs
+    dte: 1                  # scout compares the next 3 listed expiries from 1 day out (0DTE theta is the worst)
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     daily_goal: 600
@@ -252,8 +252,8 @@ workers:
     triggers: [smc_retrace]
     sizing: {mode: risk, risk: 300, max_contracts: 10}
     exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
-    strike: "delta:0.70"   # in the money: less time decay and spread per dollar of move (research report)
-    dte: 2                  # 2+ trading days out, not 0DTE: theta alone can hit a stop within an hour on 0DTE
+    strike: auto            # contract scout: prices the trade plan on every contract, keeps the best after costs
+    dte: 1                  # scout compares the next 3 listed expiries from 1 day out (0DTE theta is the worst)
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     daily_goal: 600
@@ -264,8 +264,8 @@ workers:
     triggers: [smc_retrace]
     sizing: {mode: risk, risk: 300, max_contracts: 10}
     exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
-    strike: "delta:0.70"   # in the money: less time decay and spread per dollar of move (research report)
-    dte: 2                  # 2+ trading days out, not 0DTE: theta alone can hit a stop within an hour on 0DTE
+    strike: auto            # contract scout: prices the trade plan on every contract, keeps the best after costs
+    dte: 1                  # scout compares the next 3 listed expiries from 1 day out (0DTE theta is the worst)
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     daily_goal: 600

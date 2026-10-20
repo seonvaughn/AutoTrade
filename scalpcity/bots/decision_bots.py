@@ -5,6 +5,7 @@ import itertools
 
 from ..core import calendar as cal
 from ..core.costs import round_qty
+from ..core.options_math import bs_price
 from ..core.events import (ContractRejected, ContractSelected, HealthStatus, KillSwitch, KillSwitchRequest,
                            OrderApproved, OrderFailed, OrderIntent, OrderRejected, OrderSide, PnLUpdate, PositionOpened,
                            Purpose, ResearchCleared, SessionEvent, SessionKind, Side, TradeClosed, WorkerStatus)
@@ -33,17 +34,26 @@ class ContractSelectorBot(Bot):
                 return
         else:
             expiry = cal.next_trading_day(sig.ts.date(), w.dte)
-            chain = []
-            for _ in range(self.MAX_EXPIRY_SEARCH + 1):
+            chains: list = []
+            want = w.auto_expiries if w.strike == "auto" else 1
+            for _ in range(self.MAX_EXPIRY_SEARCH + want):
                 chain = await chain_bot.get_chain(sig.symbol, expiry, sig.side, sig.close)
                 if chain:
-                    break
+                    chains.append(chain)
+                    if len(chains) >= want:
+                        break
                 expiry = cal.next_trading_day(expiry)
-            if not chain:
+            if not chains:
                 self.emit(ContractRejected(sig.ts, ws.worker, sig, f"no {sig.side.value} chain within "
                                                                    f"{self.MAX_EXPIRY_SEARCH} days of {w.dte}DTE"))
                 return
-            q = self.pick(chain, w.strike, sig.side, sig.close)
+            if w.strike == "auto":
+                q, why = self.scout([q for c in chains for q in c], sig, w)
+                if q is None:
+                    self.emit(ContractRejected(sig.ts, ws.worker, sig, why))
+                    return
+            else:
+                q = self.pick(chains[0], w.strike, sig.side, sig.close)
         risk = self.cfg.risk
         if q.contract.kind == "option" and (q.ask < risk.min_premium or q.ask > risk.max_premium):
             self.emit(ContractRejected(sig.ts, ws.worker, sig,
@@ -52,6 +62,41 @@ class ContractSelectorBot(Bot):
             self.emit(ContractRejected(sig.ts, ws.worker, sig, f"spread too wide ({q.bid:.2f}/{q.ask:.2f})"))
         else:
             self.emit(ContractSelected(sig.ts, ws.worker, sig, q))
+
+    def scout(self, quotes, sig, w):
+        """strike: auto. For every listed contract, price the trade's own plan: how the option's value changes if the
+        stock reaches the target or the stop halfway through the expected hold (time decay included), minus the
+        spread paid in and out.
+        Keep only contracts that still gain at the target, and take the best gain:loss. That is the contract
+        that turns the most stock wins into option wins. Needs the signal's stop/target and the quote's IV."""
+        if sig.stop is None or sig.target is None:
+            return self.pick(quotes, "delta:0.70", sig.side, sig.close), ""
+        r = self.cfg.risk
+        flatten = cal.at(sig.ts.date(), self.cfg.flatten_time) + cal.close_shift(sig.ts.date())
+        hold = max(1.0, min(w.exits.max_hold_minutes, (flatten - sig.ts).total_seconds() / 60)) / 2
+        best, seen = None, 0
+        for q in quotes:
+            c = q.contract
+            if q.iv is None or q.delta is None or not (0.30 <= abs(q.delta) <= 0.95) or q.bid <= 0 \
+                    or not (r.min_premium <= q.ask <= r.max_premium) or q.spread_pct * 100 > r.max_spread_pct:
+                continue
+            seen += 1
+            now_min = cal.minutes_to_expiry(sig.ts, c.expiry)
+            after = max(1.0, now_min - hold)
+            is_call = c.right is Side.CALL
+            value_now = bs_price(sig.close, c.strike, now_min, q.iv, is_call)
+            spread = q.ask - q.bid                            # half paid going in, half coming out
+            gain = bs_price(sig.target, c.strike, after, q.iv, is_call) - value_now - spread
+            loss = value_now - bs_price(sig.stop, c.strike, after, q.iv, is_call) + spread
+            if gain <= 0 or loss <= 0:
+                continue
+            score = gain / loss
+            if best is None or score > best[0]:
+                best = (score, q)
+        if best is None:
+            return None, (f"no contract keeps the planned move after spread and time decay "
+                          f"({seen} checked)" if seen else "no liquid contract in the delta 0.30-0.95 range")
+        return best[1], ""
 
     @staticmethod
     def pick(chain, mode: str, side: Side, spot: float):

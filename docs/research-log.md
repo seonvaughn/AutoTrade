@@ -44,6 +44,25 @@ underlying, stop first when stop and target fall in the same minute, before opti
 - The morning study stood down most days: 329 entries refused for lack of a proven 20-session record.
 - Scout versus fixed delta: 4 vs 4 trades, no conclusion possible.
 
+## 2026-10-20: look-back on the losing trades (trade reviewer)
+
+- **Jun–Aug: 16 trades.** 7 wins, all reaching the full 1R target. 9 losses:
+  - 3 stop too tight (the target printed after the stop)
+  - 4 setup failed
+  - 2 out of time
+- **Tested on the setup record** (Jun–Aug; Sep–Oct checked once):
+
+  | Proposed fix | Result |
+  |---|---|
+  | Wider stop buffers (0.5–3× 1-minute ATR) | No better than 0.1×. "Stop too tight" losses are the normal price of a stop. |
+  | Skip "gap only" retraces (7 of 9 losses) | Gaps did best on 80 setups (+0.14R). The pattern was chance. |
+  | Rolling 20-session "prove it" gate | Hurt in both periods: discovery +0.12 → +0.08R; holdout +0.15 → +0.04R. Replaced by a 60-session record. |
+  | First setup of the day only | +0.21R in discovery, −0.15R in holdout (n=20). Noise; not adopted. |
+
+- **Bug found:** the lessons book learned from untraded VWAP/EMA signals and blocked TJR trades with "avoid puts/calls".
+  It's now scoped per traded strategy.
+- **Crew:** focused on the options strategy; legacy trigger bots are built only when a tower trades them.
+
 ## Outside evidence (docs/research/evidence-based-intraday-strategies.md)
 
 - No peer-reviewed or rigorous test shows an edge for ICT/smart-money concepts.

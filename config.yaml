@@ -32,7 +32,7 @@ risk:                       # account-wide limits (apply to all workers together
   min_premium: 0.30
   max_premium: 15.0
   pdt_guard: true
-  max_trades_per_day: 1     # entries across ALL towers per day. TJR Day 29: "stick to one for now" until proven
+  max_trades_per_day: 2     # entries across ALL towers per day (TJR Day 29: 1-2 a day); 2 x $300 risk < $900 daily limit
 
 research:                   # no trade on a hunch: evidence from past sessions before every entry
   enabled: true
@@ -53,7 +53,8 @@ research:                   # no trade on a hunch: evidence from past sessions b
   zone_impulse_atr: 2.0     # supply/demand zone = quiet base before a move of 2+ ATRs (15m / 30m / 1h)
   # TJR's model is the same on every chart, and its setups are rare: score it across all tickers together.
   pooled_triggers: [smc_retrace, smc_bos]
-  edge_lookback_days: 20    # sessions of setups that count as evidence (5 was shown to be noise)
+  edge_lookback_days: 60    # sessions of setups that count as evidence. 5 and 20 were shown to select noise
+                            # (a short-record gate lowered results in both test periods: docs/research-log.md)
   morning_study: "07:00"    # ET. The morning study clears or stands down each tower; nothing trades before it.
 
 smc:                        # TJR's boot camp model (docs/tjr-bootcamp/README.md)

@@ -244,8 +244,10 @@ class RiskManagerBot(Bot):
         cost = o.qty * o.limit * o.contract.multiplier
         if self.kill:
             return "kill switch engaged"
-        if self.problems:
-            return "paused: " + "; ".join(self.problems.values())
+        problems = [why for src, why in self.problems.items()
+                    if not src.startswith("data:") or src == f"data:{o.contract.underlying}"]
+        if problems:
+            return "paused: " + "; ".join(problems)
         if clock and not clock.entries_allowed():
             return "market closed or past entry cutoff"
         if o.worker in self.clocked_out:

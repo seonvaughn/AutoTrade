@@ -12,12 +12,12 @@ from .base import Bot
 
 class HealthBot(Bot):
     name = "health"
-    skill = "Detect stale market data and failing bots; pause new entries until healthy"
+    skill = "Detect stale market data and failing bots; pause new entries on a quiet ticker until its data is back"
 
     def setup(self) -> None:
         self.watching_since = None
         self.last_tick: dict[str, object] = {}
-        self.flagged = False
+        self.flagged: set[str] = set()   # tickers paused for stale data
         self.on(Tick, lambda t: self.last_tick.__setitem__(t.symbol, t.ts))
         self.on(Heartbeat, self.on_heartbeat)
         self.on(BotError, lambda e: self.emit(Alert(e.ts, "warning", f"bot '{e.bot}' error: {e.error}")))
@@ -34,16 +34,20 @@ class HealthBot(Bot):
         limit = timedelta(seconds=self.cfg.stale_data_seconds)
         if self.watching_since is None:
             self.watching_since = hb.ts  # a symbol we never heard from gets the same grace as one that went quiet
-        stale = [s for s in self.cfg.symbols if hb.ts - self.last_tick.get(s, self.watching_since) > limit]
-        if stale and not self.flagged:
-            self.flagged = True
-            text = f"no market data for {', '.join(stale)} in {self.cfg.stale_data_seconds:g}s — pausing entries"
+        stale = {s for s in self.cfg.symbols if hb.ts - self.last_tick.get(s, self.watching_since) > limit}
+        # Per ticker: a quiet ticker (the free IEX feed can go 30 s without a QQQ or IWM trade) pauses its own
+        # entries only; the others keep trading on fresh prices.
+        new, back = sorted(stale - self.flagged), sorted(self.flagged - stale)
+        if new:
+            text = f"no market data for {', '.join(new)} in {self.cfg.stale_data_seconds:g}s — pausing entries there"
             self.emit(Alert(hb.ts, "critical", text))
-            self.emit(HealthStatus(hb.ts, False, text, "data"))
-        elif not stale and self.flagged:
-            self.flagged = False
-            self.emit(Alert(hb.ts, "info", "market data back — resuming"))
-            self.emit(HealthStatus(hb.ts, True, "data ok", "data"))
+            for s in new:
+                self.emit(HealthStatus(hb.ts, False, f"no market data for {s}", f"data:{s}"))
+        if back:
+            self.emit(Alert(hb.ts, "info", f"market data back for {', '.join(back)} — resuming"))
+            for s in back:
+                self.emit(HealthStatus(hb.ts, True, "data ok", f"data:{s}"))
+        self.flagged = stale
 
 
 class AlertBot(Bot):

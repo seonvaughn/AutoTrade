@@ -307,4 +307,20 @@ def test_health_gives_silent_symbols_a_grace_period_after_start():
         assert seen == []
         await o.bus.emit(Heartbeat(t0 + _td(seconds=31)))     # SPY silent past the limit
     _asyncio.run(go())
-    assert len(seen) == 1 and not seen[0].ok and "SPY" in seen[0].reason and "QQQ" not in seen[0].reason
+    assert len(seen) == 1 and not seen[0].ok and seen[0].source == "data:SPY"
+    risk = o.ctx.bots["risk_manager"]
+    assert "data:SPY" in risk.problems and "data:QQQ" not in risk.problems     # only the quiet ticker pauses
+
+
+def test_a_quiet_ticker_pauses_only_its_own_entries():
+    from scalpcity.core.events import HealthStatus
+    o = system(mute=("health", "execution"))
+    rejected = collect(o, OrderRejected)
+    approved = collect(o, OrderApproved)
+    _open_session(o)
+    run(o, HealthStatus(t("10:00"), False, "no market data for SPY", "data:SPY"))
+    spy = OrderIntent(t("10:00"), "SPY", OptionContract("SPY", D, 600, Side.CALL), OrderSide.BUY, 1, 3.0,
+                      Purpose.ENTRY, "x")
+    run(o, _intent(), spy)                                     # QQQ trades on; SPY waits for fresh prices
+    assert len(approved) == 1 and approved[0].intent.contract.underlying == "QQQ"
+    assert "no market data for SPY" in rejected[0].reason

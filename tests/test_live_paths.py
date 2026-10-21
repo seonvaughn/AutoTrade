@@ -272,3 +272,11 @@ def test_live_client_follows_config(monkeypatch):
     assert isinstance(c, AlpacaDataClient) and c.options_feed == "opra" and c.stock_feed == "iex"
     cfg.data.live_data = "polygon"
     assert isinstance(live_client(cfg), PolygonClient)
+
+
+def test_sip_requests_end_at_least_15_minutes_ago():
+    from scalpcity.data.alpaca_data import sip_end
+    now = cal.now_et()
+    assert sip_end(now + timedelta(days=1)) <= now - timedelta(minutes=15)       # free plan: no recent SIP data
+    old = now - timedelta(days=3)
+    assert sip_end(old) == old

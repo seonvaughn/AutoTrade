@@ -27,10 +27,11 @@ def _day_candle(symbol: str, d: date, o, h, low, c, v) -> Candle:
 
 
 async def _fetch_alpaca(symbol: str, start: date, end: date) -> list[Candle]:
-    from .alpaca_data import AlpacaDataClient, parse_ts
+    from .alpaca_data import AlpacaDataClient, parse_ts, sip_end
     client = AlpacaDataClient(stock_feed="sip")
     try:
-        params = {"timeframe": "1Day", "start": start.isoformat(), "end": (end + timedelta(days=1)).isoformat(),
+        until = sip_end(datetime.combine(end + timedelta(days=1), datetime.min.time(), cal.ET))
+        params = {"timeframe": "1Day", "start": start.isoformat(), "end": until.isoformat(),
                   "limit": 10000, "sort": "asc", "feed": "sip", "adjustment": "split"}
         rows: list[dict] = []
         while True:

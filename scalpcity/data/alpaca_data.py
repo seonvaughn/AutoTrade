@@ -46,6 +46,11 @@ def keys() -> tuple[str, str]:
 _TS = re.compile(r"^(.*?T\d\d:\d\d:\d\d)(?:\.(\d+))?(Z|[+-]\d\d:\d\d)$")
 
 
+def sip_end(end: datetime) -> datetime:
+    """Alpaca's free plan serves full-market (SIP) bars only when they are over 15 minutes old: cap a request's end."""
+    return min(end, cal.now_et() - timedelta(minutes=16))
+
+
 def parse_ts(s: str) -> datetime:
     """RFC 3339 with up to nanosecond precision (Python 3.9's fromisoformat takes neither 'Z' nor 9 digits)."""
     m = _TS.match(s)

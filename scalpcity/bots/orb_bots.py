@@ -195,6 +195,7 @@ class OpeningRangeNTZBot(_ChartSignalBot):
         self.hours: dict[str, list[tuple[date, float]]] = {}   # symbol -> hourly closes (day, close)
         self.hour_bar: dict[str, list] = {}
         self.st: dict[str, dict] = {}
+        self.requested: set[date] = set()
         self.on(CandleClosed, self.on_minute)
 
     async def start(self) -> None:
@@ -230,10 +231,11 @@ class OpeningRangeNTZBot(_ChartSignalBot):
         if m < 0:
             return
         s = self.st.get(c.symbol)
+        if self.ctx.live and d not in self.requested and d == cal.now_et().date() \
+                and cal.now_et() >= open_ + timedelta(minutes=RANGE_MINUTES + 1):
+            self.requested.add(d)               # today's pre-market, once Alpaca's free plan serves it (15 min old)
+            self.spawn(self._fetch_today(d))
         if s is None or s["day"] != d:
-            if self.ctx.live and not e.backfill and d.isoformat() not in self.pre.get(c.symbol, {}) \
-                    and (s is None or s["day"] != d):
-                self.spawn(self._fetch_today(d))
             y = (s["hi"], s["lo"]) if s else (None, None)
             s = self.st[c.symbol] = {"day": d, "hi": c.high, "lo": c.low, "yhi": y[0], "ylo": y[1], "orh": None,
                                      "orl": None, "locked": False, "dir": None, "fired": False}

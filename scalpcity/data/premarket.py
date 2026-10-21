@@ -20,12 +20,12 @@ def _path(cache_dir: str, symbol: str) -> Path:
 
 
 async def _fetch(symbol: str, start: date, end: date) -> dict[str, list[float]]:
-    from .alpaca_data import AlpacaDataClient, parse_ts
+    from .alpaca_data import AlpacaDataClient, parse_ts, sip_end
     client = AlpacaDataClient(stock_feed="sip")
     out: dict[str, list[float]] = {}
     try:
         params = {"timeframe": "5Min", "start": datetime.combine(start, datetime.min.time(), cal.ET).isoformat(),
-                  "end": datetime.combine(end + timedelta(days=1), datetime.min.time(), cal.ET).isoformat(),
+                  "end": sip_end(datetime.combine(end + timedelta(days=1), datetime.min.time(), cal.ET)).isoformat(),
                   "limit": 10000, "sort": "asc", "feed": "sip", "adjustment": "split"}
         while True:
             body = (await client._get(f"/v2/stocks/{symbol}/bars", params)).json()

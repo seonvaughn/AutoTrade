@@ -452,13 +452,22 @@ class MorningStudyBot(Bot):
         if needs_bias and bias.get("D") == "unknown":
             reasons.append("no daily bias: daily candles missing")
         et = self.bot("edge_tracker")
-        triggers = sorted({t for w in self.cfg.workers if w.enabled and w.symbol == sym for t in w.triggers}
-                          & PLANNED_TRIGGERS)
+        mine = [w for w in self.cfg.workers if w.enabled and w.symbol == sym]
+        triggers = sorted({t for w in mine for t in w.triggers} & PLANNED_TRIGGERS)
+        sessions = ["am"] + (["pm"] if any(w.pm_start for w in mine) else [])
+        proven, unproven = [], []
         for t in triggers:
-            st = et.stats(sym, t, d) if et else {"proven": False, "n": 0, "avg_r": 0.0}
-            details[t] = {k: st.get(k) for k in ("n", "wins", "win_rate", "avg_r", "proven")}
-            if not st.get("proven"):
-                reasons.append(f"{t} record not proven: {st.get('n', 0)} setups, avg {st.get('avg_r', 0.0):+.2f}R")
+            for sess in sessions:
+                st = et.stats(sym, t, d, sess) if et else {"proven": False, "n": 0, "avg_r": 0.0}
+                name = t if sess == "am" else f"{t} (afternoon)"
+                details[name] = {k: st.get(k) for k in ("n", "wins", "win_rate", "avg_r", "proven")}
+                (proven if st.get("proven") else unproven).append(
+                    f"{name} record not proven: {st.get('n', 0)} setups, avg {st.get('avg_r', 0.0):+.2f}R")
+        # Each strategy and session is judged on its own record (the gate re-checks it per signal): one unproven
+        # strategy no longer stands the whole ticker down. With nothing proven, nothing trades.
+        details["unproven"] = unproven
+        if triggers and not proven:
+            reasons += unproven
         if news:
             factor, why = news.size_factor(d)
             details["size"] = factor

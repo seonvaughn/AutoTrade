@@ -17,7 +17,7 @@ from datetime import date, timedelta
 from ..core import calendar as cal
 from ..core.events import (CandleClosed, EntryVetoed, KeyLevel, KeyLevels, ResearchCleared, SetupScored, Side,
                            Signal, WorkerSignal)
-from ..core.config import PLANNED_TRIGGERS, SMC_TRIGGERS
+from ..core.config import PLANNED_TRIGGERS, SMC_TRIGGERS, session_of
 from .base import Bot
 
 BUCKET_MINUTES = 15  # turning points are found on 15-minute bars
@@ -168,7 +168,7 @@ class EdgeTrackerBot(Bot):
                  "stop": s.close - way * r.stop_atr * s.atr, "win_r": r.target_atr / r.stop_atr,
                  "until": s.ts + timedelta(minutes=r.horizon_minutes)}
         p.update(sym=s.symbol, trigger=s.trigger, side=s.side.value, day=s.ts.date(), entry=s.close, way=way,
-                 last=s.close, plan=self.in_plan(s), ts=s.ts, features=features_of(self, s))
+                 last=s.close, plan=self.in_plan(s), ts=s.ts, features=features_of(self, s), session=self.session(s))
         self.pending.append(p)
 
     def on_candle(self, e: CandleClosed) -> None:
@@ -195,6 +195,15 @@ class EdgeTrackerBot(Bot):
                 keep.append(p)
         self.pending = keep
 
+    def session(self, s: Signal) -> str | None:
+        """Which session of a tower trading this setup it fell in: "am", "pm" (afternoon), or None."""
+        for w in self.cfg.workers:
+            if w.enabled and w.symbol == s.symbol and s.trigger in w.triggers:
+                got = session_of(w, s.ts)
+                if got:
+                    return got
+        return None
+
     def in_plan(self, s: Signal) -> bool:
         """Would the trading plan have taken this chart-planned setup? With the daily bias, inside a worker's
         trading window, not on a news blackout (TJR Days 19, 29, 34). Those are the setups whose record counts."""
@@ -204,8 +213,7 @@ class EdgeTrackerBot(Bot):
         if news and news.blocked(s.ts):
             return False
         d = s.ts.date()
-        if not any(w.enabled and w.symbol == s.symbol and s.trigger in w.triggers
-                   and cal.at(d, w.start_time) <= s.ts < cal.at(d, w.end_time) for w in self.cfg.workers):
+        if self.session(s) is None:
             return False
         if s.trigger not in SMC_TRIGGERS:
             return True                               # the opening range needs no daily bias (the video's rule)
@@ -221,19 +229,22 @@ class EdgeTrackerBot(Bot):
             self.emit(SetupScored(p["ts"], p["sym"], p["trigger"], Side(p["side"]), outcome, round(r, 3),
                                   p["features"], p.get("plan", True)))
         rows = self.results.setdefault((p["sym"], p["trigger"]), [])
-        rows.append((p["day"], p["side"], outcome, round(r, 3), p.get("plan", True)))
+        rows.append((p["day"], p["side"], outcome, round(r, 3), p.get("plan", True), p.get("session") or "am"))
         oldest = _lookback_start(p["day"], edge_days(self.cfg, p["trigger"]) + 1)
         if rows[0][0] < oldest:
             rows[:] = [x for x in rows if x[0] >= oldest]
 
-    def stats(self, symbol: str, trigger: str, today: date) -> dict:
+    def stats(self, symbol: str, trigger: str, today: date, session: str = "am") -> dict:
+        """The track record over the evidence window, for one session: the morning and the afternoon session are
+        judged apart (the afternoon lost in every test so far: docs/research-log.md)."""
         r = self.cfg.research
         start = _lookback_start(today, edge_days(self.cfg, trigger))
         if trigger in r.pooled_triggers:             # one model, every market: score all tickers together
             pool = [x for (_, t), xs in self.results.items() if t == trigger for x in xs]
         else:
             pool = self.results.get((symbol, trigger), [])
-        rows = [x for x in pool if start <= x[0] <= today and (len(x) < 5 or x[4])]  # only setups the plan would have taken
+        rows = [x for x in pool if start <= x[0] <= today and (len(x) < 5 or x[4])  # only setups the plan would take
+                and (x[5] if len(x) > 5 else "am") == session]
         n = len(rows)
         wins = sum(1 for x in rows if x[2] == "win")
         losses = sum(1 for x in rows if x[2] == "loss")
@@ -246,7 +257,7 @@ class EdgeTrackerBot(Bot):
         return {"symbol": symbol, "trigger": trigger, "n": n, "wins": wins, "losses": losses,
                 "timeouts": n - wins - losses, "win_rate": round(win_rate, 3), "avg_r": round(avg_r, 3),
                 "proven": proven, "since": start.isoformat(), "pooled": trigger in r.pooled_triggers,
-                "judged_on": "expectancy" if planned else "win rate and expectancy"}
+                "judged_on": "expectancy" if planned else "win rate and expectancy", "session": session}
 
 
 class ResearchGateBot(Bot):
@@ -262,7 +273,7 @@ class ResearchGateBot(Bot):
         if not self.cfg.research.enabled or not w.research_gate:
             self.emit(ResearchCleared(ws.ts, ws.worker, sig, {"gate": "off"}))
             return
-        evidence, reason = self.check(sig)
+        evidence, reason = self.check(sig, session_of(w, sig.ts) or "am")
         if not reason:
             evidence, reason = self.check_tjr(sig, evidence)
         if reason:
@@ -270,10 +281,11 @@ class ResearchGateBot(Bot):
         else:
             self.emit(ResearchCleared(ws.ts, ws.worker, sig, evidence))
 
-    def check(self, sig: Signal) -> tuple[dict, str | None]:
+    def check(self, sig: Signal, session: str = "am") -> tuple[dict, str | None]:
         r = self.cfg.research
         day = sig.ts.date()
-        edge = self.bot("edge_tracker").stats(sig.symbol, sig.trigger, day)
+        edge = self.bot("edge_tracker").stats(sig.symbol, sig.trigger, day, session)
+        when = " in the afternoon session" if session == "pm" else ""
         levels = list(self.bot("key_levels").levels(sig.symbol, day))
         orng = self.bot("opening_range")
         hi, lo, locked = orng.range(sig.symbol) if orng else (None, None, False)
@@ -301,10 +313,10 @@ class ResearchGateBot(Bot):
         if not sig.atr:
             return ev, "not enough data yet (ATR still warming up)"
         if edge["n"] < r.min_samples:
-            return ev, (f"not proven: only {edge['n']} past {sig.trigger} signals on {sig.symbol} in "
+            return ev, (f"not proven: only {edge['n']} past {sig.trigger} signals on {sig.symbol}{when} in "
                         f"{edge_days(self.cfg, sig.trigger)} sessions (need {r.min_samples})")
         if not edge["proven"]:
-            return ev, (f"no edge: {sig.trigger} on {sig.symbol} won {edge['wins']}/{edge['n']} "
+            return ev, (f"no edge{when}: {sig.trigger} on {sig.symbol} won {edge['wins']}/{edge['n']} "
                         f"({edge['win_rate']:.0%}), avg {edge['avg_r']:+.2f}R over {edge_days(self.cfg, sig.trigger)} sessions")
         against = "bearish" if sig.side is Side.CALL else "bullish"
         bad = [tf for tf, t in trends.items() if t == against and sig.stop is None]

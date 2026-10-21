@@ -61,6 +61,10 @@ class WorkerConfig:
     max_daily_loss: float = 500.0     # clock out once realized P&L falls to -this
     start_time: str = "09:35"
     end_time: str = "15:30"
+    # Afternoon session (off when blank): open only if the account took no trade in the morning. Its setups keep
+    # their own track record, so the research gate judges afternoon trades on afternoon evidence.
+    pm_start: str = ""
+    pm_end: str = ""
     cooldown_minutes: float = 2.0
     max_trades_per_day: int = 10
     min_close_beyond_atr: float = 0.05  # candle must close at least this far past the level
@@ -227,6 +231,17 @@ class Config:
         raise KeyError(name)
 
 
+def session_of(w: "WorkerConfig", ts) -> str | None:
+    """"am" inside the worker's main window, "pm" inside its afternoon session, else None."""
+    from . import calendar as cal
+    d = ts.date()
+    if cal.at(d, w.start_time) <= ts < cal.at(d, w.end_time):
+        return "am"
+    if w.pm_start and w.pm_end and cal.at(d, w.pm_start) <= ts < cal.at(d, w.pm_end):
+        return "pm"
+    return None
+
+
 def _build(cls, raw: dict[str, Any] | None):
     raw = raw or {}
     known = {f.name: f for f in fields(cls)}
@@ -299,6 +314,10 @@ def validate(cfg: Config) -> None:
             raise ValueError(f"{w.name}: strike must be atm|otm1|itm1|delta:<x>|auto")
         if w.auto_expiries < 1:
             raise ValueError(f"{w.name}: auto_expiries must be >= 1")
+        if bool(w.pm_start) != bool(w.pm_end):
+            raise ValueError(f"{w.name}: set both pm_start and pm_end, or neither")
+        if w.pm_start and not (w.end_time <= w.pm_start < w.pm_end):
+            raise ValueError(f"{w.name}: the afternoon session must start after end_time and end after it starts")
     if cfg.mode == "live":
         if not cfg.live_trading_enabled:
             raise ValueError("mode=live requires live_trading_enabled: true in config")

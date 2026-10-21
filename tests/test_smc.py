@@ -7,7 +7,7 @@ from scalpcity.core import calendar as cal
 from scalpcity.core.config import WorkerConfig
 from scalpcity.core.events import (BreakOfStructure, Candle, CandleClosed, EntryVetoed, Heartbeat, LiquiditySweep,
                                    MorningPlan, SessionEvent, SessionKind,
-                                   ResearchCleared, Side, Signal, WorkerSignal)
+                                   ResearchCleared, Side, Signal, SignalSkipped, WorkerSignal)
 from scalpcity.orchestrator import Orchestrator
 from tests.conftest import make_cfg
 
@@ -383,3 +383,31 @@ def test_lessons_need_repeated_evidence_before_becoming_rules(tmp_path):
     again.cfg.research.lessons_path = o.cfg.research.lessons_path
     again.ctx.bots["lessons"].setup()
     assert again.ctx.bots["lessons"].check(f)                   # the book survives a restart
+
+
+# ---------------------------------------------------------------- afternoon session (owner, 2026-10-21)
+def test_afternoon_session_only_after_a_missed_morning_and_on_its_own_record():
+    from scalpcity.core.config import session_of
+    o = system(("smc_retrace", "orb_ntz_retest"), research=True)
+    w = o.cfg.workers[0]
+    w.start_time, w.end_time, w.pm_start, w.pm_end = "09:35", "11:00", "13:00", "15:00"
+    assert session_of(w, cal.at(D, "10:00")) == "am" and session_of(w, cal.at(D, "13:30")) == "pm"
+    assert session_of(w, cal.at(D, "12:00")) is None
+    et = o.ctx.bots["edge_tracker"]
+    am = [(D - timedelta(days=1), "PUT", "win", 1.0, True, "am")] * 10
+    pm = [(D - timedelta(days=1), "PUT", "loss", -1.0, True, "pm")] * 10
+    et.results[("QQQ", "smc_retrace")] = am + pm
+    assert et.stats("QQQ", "smc_retrace", D)["proven"]                         # the morning stands on its own
+    assert not et.stats("QQQ", "smc_retrace", D, "pm")["proven"]               # the afternoon lost: no edge
+    _with_daily(o, "bullish")
+    o.cfg.smc.bias_mode = "against"
+    plans = collect(o, MorningPlan)
+    emit(o, Heartbeat(cal.at(D, "07:00")))
+    assert plans[0].cleared                                    # one proven strategy is enough to open the tower
+    assert any("orb_ntz_retest" in u for u in plans[0].details["unproven"])
+    reason, _, _ = _gate(o, _signal(Side.PUT, ts=cal.at(D, "13:30")))
+    assert reason.startswith("no edge in the afternoon session")
+    skipped = collect(o, SignalSkipped)
+    o.ctx.bots["risk_manager"].entries_today = 1                # the account traded this morning
+    emit(o, _signal(Side.PUT, ts=cal.at(D, "13:31")))
+    assert any("only for a missed morning" in s.reason for s in skipped)

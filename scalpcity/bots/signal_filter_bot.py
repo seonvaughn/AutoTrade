@@ -5,9 +5,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from ..core import calendar as cal
 from ..core.events import (ContractRejected, EntryVetoed, OrderFailed, OrderRejected, PositionOpened, Purpose, SessionEvent,
                            SessionKind, Side, Signal, SignalSkipped, TradeClosed, WorkerSignal, WorkerStatus)
+from ..core.config import session_of
 from .base import Bot
 
 
@@ -77,7 +77,6 @@ class SignalFilterBot(Bot):
 
     def _reject_reason(self, w, sig: Signal, s: dict) -> str | None:
         ts: datetime = sig.ts
-        d = ts.date()
         if s["clocked_out"]:
             return "clocked out for the day"
         if s["in_position"]:
@@ -86,8 +85,13 @@ class SignalFilterBot(Bot):
             return "order already working"
         if s["last_candle"] == ts.replace(second=0, microsecond=0):
             return "already acted on this candle"
-        if ts < cal.at(d, w.start_time) or ts >= cal.at(d, w.end_time):
-            return f"outside trading window {w.start_time}-{w.end_time}"
+        session = session_of(w, ts)
+        if session is None:
+            pm = f" or {w.pm_start}-{w.pm_end}" if w.pm_start else ""
+            return f"outside trading window {w.start_time}-{w.end_time}{pm}"
+        risk = self.bot("risk_manager")
+        if session == "pm" and risk and risk.entries_today:
+            return "the account traded this morning: the afternoon session is only for a missed morning"
         if s["trades"] >= w.max_trades_per_day:
             return f"max {w.max_trades_per_day} trades today"
         if s["last_exit"] and ts - s["last_exit"] < timedelta(minutes=w.cooldown_minutes):

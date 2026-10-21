@@ -114,3 +114,24 @@ untraded, and its setups keep being scored.
 - **Decision:** the towers paper-trade both `smc_retrace` and `orb_ntz_retest`, behind the research gate (each
   needs positive pooled expectancy over the past 60 sessions). Paper trading is the forward test; neither is
   proven.
+
+## 2026-10-21: afternoon session, and what the losses have in common
+- **Afternoon windows** (shipped TJR rule: against the daily bias, 1R, held to the close; NTZ: its own plan), on the
+  underlying, news days out. Trial count +5 windows × 2 strategies.
+  | Window | Strategy | Discovery (May 15 – Aug 31) | Holdout (Sep 1 – Oct 15) |
+  |---|---|---|---|
+  | 09:35–11:00 | TJR | n 284, 51%, +0.046R, PF 1.12 | n 44, 55%, +0.147R, PF 1.41 |
+  | 11:00–13:00 | TJR | n 337, 50%, −0.005R, PF 0.99 | – |
+  | 13:00–15:00 | TJR | n 406, 49%, −0.028R, PF 0.94 | n 103, 49%, −0.018R, PF 0.96 |
+  | 13:00–15:00 | NTZ | n 10, 40%, −0.130R, PF 0.18 | n 5, 40%, −0.078R, PF 0.75 |
+  The afternoon loses in both periods. At the owner's request the towers still get a 13:00–15:00 session, open only
+  when the account took no morning trade, with its **own** track record (`EdgeTracker.stats(..., session="pm")`), so
+  the gate vetoes afternoon trades until that record shows an edge.
+- **Morning study fix:** it stood a ticker down if *any* of its strategies was unproven, so the new NTZ trigger's
+  record could block TJR trades. Each strategy and session is now judged on its own; the tower stands down only when
+  none is proven.
+- **What the losing setups have in common (the r2 lessons book, Jun–Oct):** trade reviews were 37 setup failed, 26 out
+  of time, 6 stop too tight. Across 54 feature tallies (ticker, weekday, hour, side, sweep timeframe, zone, bias),
+  none separates losers from winners: the strongest is |t| 1.5 (NTZ on Tuesdays, n 18), far below the 2.5 a rule
+  needs. The losses don't share a feature the bots can filter on yet; a rule from them would be fitted to noise (the
+  first lessons book did exactly that and blocked every trade).

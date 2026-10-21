@@ -10,6 +10,11 @@ PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 case "$1" in
   install)
+    # 6:50am Eastern in this Mac's own time zone (launchd uses local time)
+    PY="$REPO/.venv/bin/python"; [ -x "$PY" ] || PY=python3
+    read -r HOUR MINUTE < <("$PY" -c 'from datetime import datetime; from zoneinfo import ZoneInfo
+t = datetime.now(ZoneInfo("America/New_York")).replace(hour=6, minute=50).astimezone()
+print(t.hour, t.minute)')
     mkdir -p "$HOME/Library/LaunchAgents"
     {
       echo '<?xml version="1.0" encoding="UTF-8"?>'
@@ -22,15 +27,15 @@ case "$1" in
       echo '  </array>'
       echo '  <key>StartCalendarInterval</key><array>'
       for day in 1 2 3 4 5; do
-        echo "    <dict><key>Weekday</key><integer>$day</integer><key>Hour</key><integer>6</integer><key>Minute</key><integer>50</integer></dict>"
+        echo "    <dict><key>Weekday</key><integer>$day</integer><key>Hour</key><integer>$HOUR</integer><key>Minute</key><integer>$MINUTE</integer></dict>"
       done
       echo '  </array>'
       echo '</dict></plist>'
     } > "$PLIST"
     launchctl unload "$PLIST" 2>/dev/null || true
     launchctl load "$PLIST"
-    echo "On: the options city will start at 6:50am Monday-Friday (your Mac's clock must be on Eastern time,"
-    echo "or change Hour in $PLIST). To turn it off: bash scripts/morning_autostart.sh remove"
+    printf 'On: the options city will start Monday-Friday at %d:%02d your time (6:50am Eastern).\n' "$HOUR" "$MINUTE"
+    echo "Keep the Mac awake and plugged in overnight. To turn it off: bash scripts/morning_autostart.sh remove"
     ;;
   remove)
     launchctl unload "$PLIST" 2>/dev/null || true

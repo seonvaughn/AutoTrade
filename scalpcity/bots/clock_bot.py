@@ -36,7 +36,7 @@ class ClockBot(Bot):
             return
         if d != self.day:
             if self.day is not None:
-                # a session that ends at midnight (crypto) closes on the next date's first heartbeat
+                # events the last session didn't reach (e.g. no heartbeat after the close) fire now
                 for kind, when in self.times(self.day).items():
                     if kind not in self.done and hb.ts >= when:
                         self.done.add(kind)

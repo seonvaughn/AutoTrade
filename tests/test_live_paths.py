@@ -39,7 +39,8 @@ def test_alpaca_requests(monkeypatch):
             return httpx.Response(422, json={"message": "order is already filled"})
         if req.url.path == "/v2/positions":
             return httpx.Response(200, json=[{"symbol": C.occ, "qty": "5", "asset_class": "us_option"},
-                                             {"symbol": "AAPL", "qty": "10", "asset_class": "us_equity"}])
+                                             {"symbol": "AAPL", "qty": "10", "asset_class": "us_equity"},
+                                             {"symbol": "BTC/USD", "qty": "0.0029", "asset_class": "crypto"}])
         return httpx.Response(404)
 
     async def go():
@@ -57,14 +58,14 @@ def test_alpaca_requests(monkeypatch):
         return acct, oid, mkt, st, pos
 
     acct, oid, mkt, st, pos = asyncio.run(go())
-    assert acct == Account(31000.5, 30000.0, 29000.0, 2, False, False, 30000.0)  # crypto falls back to cash
+    assert acct == Account(31000.5, 30000.0, 29000.0, 2, False, False)
     assert oid == "abc" and mkt == "abc"
     body = json.loads(seen[1].content)
     assert body == {"symbol": "QQQ261002C00752000", "qty": "18", "side": "buy", "time_in_force": "day",
                     "type": "limit", "limit_price": "3.68"}
     assert json.loads(seen[2].content)["type"] == "market" and "limit_price" not in json.loads(seen[2].content)
     assert st == OrderStatus("partially_filled", 3, 3.68)
-    assert pos == {C.occ: 5}
+    assert pos == {C.occ: 5}                     # only options count: stock and coins in the account aren't ours
 
 
 def test_alpaca_requires_keys(monkeypatch):

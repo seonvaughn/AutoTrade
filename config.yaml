@@ -3,7 +3,6 @@
 #   POLYGON_API_KEY, ALPACA_API_KEY_ID, ALPACA_API_SECRET_KEY, SCALPCITY_ALERT_WEBHOOK (optional)
 
 mode: paper                 # backtest | replay | paper | live   (CLI command overrides this)
-market: options             # options (this file) | crypto (see config.crypto.yaml)
 live_trading_enabled: false # must be true (plus an env var) before real money can trade
 
 entry_cutoff: "15:30"       # no new trades after this (ET)

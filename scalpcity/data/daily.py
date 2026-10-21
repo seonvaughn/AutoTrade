@@ -1,6 +1,6 @@
 """Daily candles for the higher-timeframe study (day, week, month, year), cached as CSV.
 
-Stocks come from Alpaca (split-adjusted, all exchanges) or Polygon; coins from Alpaca crypto.
+Stocks come from Alpaca (split-adjusted, all exchanges) or Polygon.
 Callers must only look at days *before* the session being traded (no look-ahead); this module
 just fetches and caches.
 """
@@ -11,7 +11,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from ..core import calendar as cal
-from ..core.events import Candle, is_crypto_symbol
+from ..core.events import Candle
 from .bars import read_csv, write_csv
 
 log = logging.getLogger("scalpcity.daily")
@@ -31,18 +31,11 @@ async def _fetch_alpaca(symbol: str, start: date, end: date) -> list[Candle]:
     client = AlpacaDataClient(stock_feed="sip")
     try:
         params = {"timeframe": "1Day", "start": start.isoformat(), "end": (end + timedelta(days=1)).isoformat(),
-                  "limit": 10000, "sort": "asc"}
-        if is_crypto_symbol(symbol):
-            path, key = "/v1beta3/crypto/us/bars", symbol
-            params["symbols"] = symbol
-        else:
-            path, key = f"/v2/stocks/{symbol}/bars", None
-            params.update(feed="sip", adjustment="split")
+                  "limit": 10000, "sort": "asc", "feed": "sip", "adjustment": "split"}
         rows: list[dict] = []
         while True:
-            body = (await client._get(path, params)).json()
-            page = body.get("bars") or ([] if key is None else {})
-            rows += page.get(key, []) if key else page
+            body = (await client._get(f"/v2/stocks/{symbol}/bars", params)).json()
+            rows += body.get("bars") or []
             if not body.get("next_page_token"):
                 break
             params["page_token"] = body["next_page_token"]
@@ -74,7 +67,7 @@ async def load_daily(symbols: list[str], start: date, end: date, source: str, ca
         have = (bars[0].start.date(), bars[-1].start.date()) if bars else None
         if not have or have[0] > start + timedelta(days=7) or have[1] < end - timedelta(days=4):
             try:
-                fetch = _fetch_alpaca if source == "alpaca" or is_crypto_symbol(s) else _fetch_polygon
+                fetch = _fetch_alpaca if source == "alpaca" else _fetch_polygon
                 bars = await fetch(s, start, end)
                 write_csv(path, bars)
             except Exception as exc:  # noqa: BLE001 - the study degrades gracefully without daily data

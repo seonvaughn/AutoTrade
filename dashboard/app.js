@@ -328,7 +328,7 @@ const TRIGGER = { vwap_cross: "VWAP cross", ema50_cross: "EMA50 cross", orb: "15
 function renderRight(s) {
   const w = s.workers.find((x) => x.name === store.selected) || s.workers[0];
   if (!w) return;
-  $("tower-name").textContent = `${w.name} · ${w.symbol}${s.market === "crypto" ? "" : w.dte ? ` · ${w.dte}DTE` : " · 0DTE"}`;
+  $("tower-name").textContent = `${w.name} · ${w.symbol}${w.dte ? ` · ${w.dte}DTE` : " · 0DTE"}`;
   const st = $("tower-status");
   st.textContent = w.status === "clocked_out" ? `clocked out (${w.clock_reason})` : w.status.replace("_", " ");
   st.className = `pill ${w.status}`;
@@ -851,7 +851,7 @@ function towerFloor(w, s) {
       return `<h2>Lobby · how ${esc(w.name)} trades</h2><dl class="rules">
         <dt>symbol</dt><dd>${esc(w.symbol)}</dd>
         <dt>triggers</dt><dd>${w.triggers.map((t) => TRIGGER[t]).join(", ")}</dd>
-        ${s.market === "crypto" ? "<dt>direction</dt><dd>long only (buys the coin; sell signals only close)</dd>" : `<dt>contract</dt><dd>${esc(c.strike)} strike · nearest listed expiry ≥ ${c.dte}DTE</dd>`}
+        <dt>contract</dt><dd>${esc(c.strike)} strike · nearest listed expiry ≥ ${c.dte}DTE</dd>
         <dt>trading window</dt><dd>${esc(c.window)} ET · max ${c.max_trades} trades · ${c.cooldown} min cooldown</dd>
         <dt>trend filter</dt><dd>${c.trend_filter ? "on (only trade with EMA50 and VWAP)" : "off"}</dd>
         <dt>size</dt><dd>${esc(size)}</dd>

@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import Enum
-from typing import ClassVar, Optional, Union
+from typing import ClassVar, Optional
 
 
 class Side(str, Enum):
@@ -202,41 +202,12 @@ class OptionContract:
         return OptionContract(root, exp, int(rest[7:]) / 1000.0, right)
 
 
-@dataclass(frozen=True)
-class CryptoAsset:
-    """A coin pair bought outright, e.g. BTC/USD. Long only: Alpaca doesn't allow shorting crypto,
-    so `right` is always CALL ("long") and a PUT signal can only close a position."""
-    underlying: str                   # "BTC/USD"
-    right: Side = Side.CALL
-    kind: ClassVar[str] = "crypto"
-    multiplier: ClassVar[int] = 1
-    expiry: ClassVar[None] = None
-    strike: ClassVar[None] = None
-
-    @property
-    def occ(self) -> str:
-        """Position key; matches the symbol Alpaca's positions endpoint returns (no slash)."""
-        return self.underlying.replace("/", "")
-
-    @property
-    def order_symbol(self) -> str:
-        return self.underlying
-
-    @property
-    def label(self) -> str:
-        return self.underlying
-
-
-Instrument = Union[OptionContract, CryptoAsset]
-
-
-def is_crypto_symbol(symbol: str) -> bool:
-    return "/" in symbol
+Instrument = OptionContract
 
 
 @dataclass
 class OptionQuote(Event):
-    """Bid/ask for an instrument (an option contract, or a coin in crypto mode)."""
+    """Bid/ask for an option contract."""
     contract: Instrument
     bid: float
     ask: float

@@ -73,7 +73,6 @@ class Orchestrator:
     def __init__(self, cfg: Config, run_id: str | None = None, db_path: str | None = None,
                  dashboard: bool | None = None) -> None:
         self.cfg = cfg
-        cal.set_market(cfg.market)
         self.live = cfg.mode in {"paper", "live"}
         run_id = run_id or (cfg.mode if self.live else f"{cfg.mode}-{datetime.now():%Y%m%d-%H%M%S}")
         self.bus = EventBus()
@@ -145,7 +144,7 @@ class Orchestrator:
         acct = await self.ctx.broker.account()
         log.warning("%s account: equity $%.2f, options buying power $%.2f, day trades %d",
                     self.cfg.mode.upper(), acct.equity, acct.options_buying_power, acct.daytrade_count)
-        if hasattr(self.ctx.broker, "calendar") and not cal.is_crypto():
+        if hasattr(self.ctx.broker, "calendar"):
             today = cal.now_et().date()
             broker_days = set(await self.ctx.broker.calendar(today, today + timedelta(days=45)))
             ours = {d.isoformat() for d in cal.trading_days(today, today + timedelta(days=45))}

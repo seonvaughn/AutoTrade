@@ -4,7 +4,7 @@ from __future__ import annotations
 
 def live_client(cfg):
     d = cfg.data
-    if d.live_data == "alpaca" or cfg.market == "crypto":
+    if d.live_data == "alpaca":
         from .alpaca_data import AlpacaDataClient
         return AlpacaDataClient(d.alpaca_stock_feed, d.alpaca_options_feed)
     from .polygon import PolygonClient

@@ -164,8 +164,6 @@ class SimConfig:
     # real chain instead, so this only matters for backtests and replays.
     expiry_weekdays: dict[str, list[int]] = field(default_factory=lambda: {
         "SPY": [0, 1, 2, 3, 4], "QQQ": [0, 1, 2, 3, 4], "IWM": [0, 1, 2, 3, 4]})
-    crypto_half_spread_pct: float = 0.02  # crypto mode: half the bid/ask spread as % of price
-    crypto_fee_pct: float = 0.25      # crypto mode: Alpaca's taker fee, % of each fill's value
 
 
 @dataclass
@@ -201,7 +199,6 @@ class DashboardConfig:
 @dataclass
 class Config:
     mode: str = "paper"
-    market: str = "options"           # options (US stock options) | crypto (coins, 24/7, long only)
     live_trading_enabled: bool = False
     workers: list[WorkerConfig] = field(default_factory=list)
     risk: RiskConfig = field(default_factory=RiskConfig)
@@ -278,17 +275,11 @@ def validate(cfg: Config) -> None:
         _dt.strptime(str(d), "%Y-%m-%d")
     for t in cfg.news.events:
         _dt.strptime(str(t), "%Y-%m-%d %H:%M")
-    if cfg.market not in {"options", "crypto"}:
-        raise ValueError("market must be options|crypto")
     if cfg.data.source not in {"synthetic", "csv", "polygon", "alpaca"}:
         raise ValueError("data.source must be synthetic|csv|polygon|alpaca")
     for w in cfg.workers:
-        crypto_sym = "/" in w.symbol
-        if crypto_sym != (cfg.market == "crypto"):
-            raise ValueError(f"{w.name}: {w.symbol} doesn't fit market: {cfg.market} "
-                             f"(crypto symbols look like BTC/USD; option underlyings like SPY)")
-    if cfg.market == "crypto" and cfg.data.source == "polygon":
-        raise ValueError("market: crypto needs data.source: alpaca (or csv / synthetic)")
+        if "/" in w.symbol:
+            raise ValueError(f"{w.name}: {w.symbol} is not a stock or ETF; the city trades options only")
     names = [w.name for w in cfg.workers]
     if len(names) != len(set(names)):
         raise ValueError("worker names must be unique")
@@ -329,8 +320,6 @@ def load(path: str | Path, mode: str | None = None) -> Config:
     if mode:
         raw["mode"] = mode
     cfg = _build(Config, raw)
-    from . import calendar as cal
-    cal.set_market(cfg.market)
     if cfg.mode in {"backtest", "replay"}:
         cfg.broker.name = "sim"
     validate(cfg)

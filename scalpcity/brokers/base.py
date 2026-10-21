@@ -15,11 +15,6 @@ class Account:
     daytrade_count: int = 0
     pattern_day_trader: bool = False
     cash_account: bool = False
-    non_marginable_buying_power: Optional[float] = None  # what crypto can use (no margin); None = cash
-
-    @property
-    def crypto_buying_power(self) -> float:
-        return self.cash if self.non_marginable_buying_power is None else self.non_marginable_buying_power
 
 
 @dataclass

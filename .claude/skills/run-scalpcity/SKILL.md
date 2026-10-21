@@ -29,8 +29,6 @@ python -m scalpcity --config $S/ui.yaml replay --day 2026-10-15 --source synthet
 Run it in the background. The dashboard is at `http://127.0.0.1:8765` within ~5 s. The replay
 keeps serving after the day ends (stop it when done). Synthetic P&L means nothing.
 
-For crypto, use `config.crypto.yaml` (port **8766**) the same way, with `--source synthetic`.
-
 ## 2. Walk the city in a headless browser
 
 Chromium and the Node Playwright package are preinstalled in cloud sessions
@@ -60,11 +58,11 @@ Needs `ALPACA_API_KEY_ID` and `ALPACA_API_SECRET_KEY` in the environment, and ne
 `paper-api.alpaca.markets`, `data.alpaca.markets` and `stream.data.alpaca.markets`.
 
 ```bash
-sed "s#db_path: data/scalpcity-crypto.db#db_path: $S/cpaper.db#" config.crypto.yaml > $S/cpaper.yaml
-timeout -s INT 45 python -u -m scalpcity --config $S/cpaper.yaml paper > $S/cpaper.log 2>&1
+sed "s#db_path: data/scalpcity.db#db_path: $S/paper.db#" config.yaml > $S/paper.yaml
+timeout -s INT 45 python -u -m scalpcity --config $S/paper.yaml paper > $S/paper.log 2>&1
 ```
 
-Healthy log: `PAPER account: equity ...`, `backfilled N bars`, `Alpaca crypto stream connected`.
+Healthy log: `PAPER account: equity ...`, `backfilled N bars`, `Alpaca iex stream connected`.
 A `no market data ... pausing entries` line must be followed by `market data back`. Ctrl-C
 (SIGINT) flattens any position before exiting, so `timeout -s INT` is safe. US options paper
 runs (`config.yaml`) only see data 9:30-16:00 ET on trading days.

@@ -27,35 +27,29 @@ class ContractSelectorBot(Bot):
         w = self.cfg.worker(ws.worker)
         sig = ws.signal
         chain_bot = self.bot("options_chain")
-        if cal.is_crypto():
-            q = await chain_bot.crypto_quote(sig.symbol)
+        expiry = cal.next_trading_day(sig.ts.date(), w.dte)
+        chains: list = []
+        want = w.auto_expiries if w.strike == "auto" else 1
+        for _ in range(self.MAX_EXPIRY_SEARCH + want):
+            chain = await chain_bot.get_chain(sig.symbol, expiry, sig.side, sig.close)
+            if chain:
+                chains.append(chain)
+                if len(chains) >= want:
+                    break
+            expiry = cal.next_trading_day(expiry)
+        if not chains:
+            self.emit(ContractRejected(sig.ts, ws.worker, sig, f"no {sig.side.value} chain within "
+                                                               f"{self.MAX_EXPIRY_SEARCH} days of {w.dte}DTE"))
+            return
+        if w.strike == "auto":
+            q, why = self.scout([q for c in chains for q in c], sig, w)
             if q is None:
-                self.emit(ContractRejected(sig.ts, ws.worker, sig, f"no quote for {sig.symbol}"))
+                self.emit(ContractRejected(sig.ts, ws.worker, sig, why))
                 return
         else:
-            expiry = cal.next_trading_day(sig.ts.date(), w.dte)
-            chains: list = []
-            want = w.auto_expiries if w.strike == "auto" else 1
-            for _ in range(self.MAX_EXPIRY_SEARCH + want):
-                chain = await chain_bot.get_chain(sig.symbol, expiry, sig.side, sig.close)
-                if chain:
-                    chains.append(chain)
-                    if len(chains) >= want:
-                        break
-                expiry = cal.next_trading_day(expiry)
-            if not chains:
-                self.emit(ContractRejected(sig.ts, ws.worker, sig, f"no {sig.side.value} chain within "
-                                                                   f"{self.MAX_EXPIRY_SEARCH} days of {w.dte}DTE"))
-                return
-            if w.strike == "auto":
-                q, why = self.scout([q for c in chains for q in c], sig, w)
-                if q is None:
-                    self.emit(ContractRejected(sig.ts, ws.worker, sig, why))
-                    return
-            else:
-                q = self.pick(chains[0], w.strike, sig.side, sig.close)
+            q = self.pick(chains[0], w.strike, sig.side, sig.close)
         risk = self.cfg.risk
-        if q.contract.kind == "option" and (q.ask < risk.min_premium or q.ask > risk.max_premium):
+        if q.ask < risk.min_premium or q.ask > risk.max_premium:
             self.emit(ContractRejected(sig.ts, ws.worker, sig,
                                        f"premium ${q.ask:.2f} outside ${risk.min_premium}-${risk.max_premium}"))
         elif q.bid <= 0 or q.spread_pct * 100 > risk.max_spread_pct:
@@ -69,8 +63,6 @@ class ContractSelectorBot(Bot):
         expiry (strike ± premium), delta (P&L per $1 and roughly the chance of finishing in the money) and what an
         hour of time decay costs with the stock standing still."""
         c = q.contract
-        if c.kind != "option":
-            return ""
         is_call = c.right is Side.CALL
         be = c.strike + q.ask if is_call else c.strike - q.ask
         parts = [f"break-even ${be:,.2f} at expiry ({(be - sig.close) / sig.close * 100:+.2f}% from ${sig.close:,.2f})"]
@@ -158,7 +150,7 @@ class PositionSizerBot(Bot):
         news = self.bot("news_calendar")
         factor, why = news.size_factor(e.ts.date()) if news else (1.0, "")
         qty = round_qty(c, min(qty * factor, s.max_contracts))
-        if qty <= 0 or (c.kind == "option" and qty < 1):
+        if qty < 1:
             self.emit(ContractRejected(e.ts, e.worker, e.signal, f"size rounds to 0 at ${e.quote.ask:.2f}"))
             return
         self.emit(OrderIntent(e.ts, e.worker, e.quote.contract, OrderSide.BUY, qty, e.quote.ask, Purpose.ENTRY,
@@ -232,7 +224,7 @@ class RiskManagerBot(Bot):
         """Position delta as stock exposure (options course, Greeks: "make sure that number is in line with our risk
         tolerance"). A 0.70-delta call on 10 contracts of a $500 stock moves like $350k of stock."""
         r = self.cfg.risk
-        if not r.max_delta_leverage or o.contract.kind != "option" or o.signal is None:
+        if not r.max_delta_leverage or o.signal is None:
             return None, 0.0
         q = await self.bot("options_chain").quote(o.contract) if self.bot("options_chain") else None
         if q is None or q.delta is None:
@@ -250,7 +242,6 @@ class RiskManagerBot(Bot):
         r = self.cfg.risk
         clock = self.bot("clock")
         cost = o.qty * o.limit * o.contract.multiplier
-        crypto = o.contract.kind == "crypto"
         if self.kill:
             return "kill switch engaged"
         if self.problems:
@@ -266,10 +257,10 @@ class RiskManagerBot(Bot):
         if sum(self.exposure.values()) + cost > r.max_premium_exposure:
             return f"premium exposure would exceed ${r.max_premium_exposure:,.0f}"
         acct = await self.ctx.broker.account()
-        bp = acct.crypto_buying_power if crypto else acct.options_buying_power
+        bp = acct.options_buying_power
         if cost > bp:
             return f"not enough buying power (${bp:,.0f})"
-        if r.pdt_guard and not crypto and not acct.cash_account and acct.equity < 25000 and acct.daytrade_count >= 3:
+        if r.pdt_guard and not acct.cash_account and acct.equity < 25000 and acct.daytrade_count >= 3:
             return "pattern-day-trader guard: 3 day trades in 5 days on a sub-$25k margin account"
         return None
 

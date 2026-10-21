@@ -85,7 +85,7 @@ class EMABot(Bot):
 
 class OpeningRangeBot(Bot):
     name = "opening_range"
-    skill = "High/low of the first 15 minutes of the session (9:30-9:45; crypto 00:00-00:15 ET); locks after"
+    skill = "High/low of the first 15 minutes of the session (9:30-9:45 ET); locks after"
     minutes = 15
 
     def setup(self) -> None:

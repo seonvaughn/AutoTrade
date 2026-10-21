@@ -1,10 +1,8 @@
-"""Market calendar: US equities (regular hours only) or crypto (every day, midnight to midnight ET).
+"""Market calendar: US equities and their options (regular hours only).
 
 US: holidays are NYSE full closures; HALF_DAYS close at 13:00 ET. Live/paper mode
 also cross-checks the broker's calendar at startup and warns on mismatch, so a
 missing entry here is caught before it matters.
-
-One process trades one market; the orchestrator calls set_market() from config.
 """
 from __future__ import annotations
 
@@ -37,32 +35,11 @@ HALF_DAYS = {
 }
 
 
-MARKETS = ("options", "crypto")
-_market = "options"
-
-
-def set_market(market: str) -> None:
-    global _market
-    if market not in MARKETS:
-        raise ValueError(f"market must be one of {MARKETS}")
-    _market = market
-
-
-def market() -> str:
-    return _market
-
-
-def is_crypto() -> bool:
-    return _market == "crypto"
-
-
 def now_et() -> datetime:
     return datetime.now(ET)
 
 
 def is_trading_day(d: date) -> bool:
-    if is_crypto():
-        return True
     return d.weekday() < 5 and d not in HOLIDAYS
 
 
@@ -97,21 +74,15 @@ def trading_days(start: date, end: date) -> list[date]:
 
 
 def session_open(d: date) -> datetime:
-    if is_crypto():
-        return datetime.combine(d, time(0, 0), ET)
     return datetime.combine(d, OPEN, ET)
 
 
 def session_close(d: date) -> datetime:
-    if is_crypto():
-        return datetime.combine(d + timedelta(days=1), time(0, 0), ET)
     return datetime.combine(d, HALF_CLOSE if d in HALF_DAYS else CLOSE, ET)
 
 
 def close_shift(d: date) -> timedelta:
     """How much earlier than normal the session closes (negative on US half days, else zero)."""
-    if is_crypto():
-        return timedelta(0)
     return session_close(d) - datetime.combine(d, CLOSE, ET)
 
 

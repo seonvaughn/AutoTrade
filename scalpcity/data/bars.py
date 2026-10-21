@@ -79,25 +79,6 @@ def synthetic_day(symbol: str, day: date) -> list[Candle]:
     return bars
 
 
-def fill_gaps(bars: list[Candle], day: date) -> list[Candle]:
-    """Crypto: a minute with no trades has no bar; fill it with a flat bar at the last price so the
-    replay keeps ticking (a live quote stream never goes quiet like that)."""
-    if not bars:
-        return bars
-    out, i = [], 0
-    t, end = bars[0].start, min(cal.session_close(day), bars[-1].start + timedelta(minutes=1))
-    last = bars[0].close
-    while t < end:
-        if i < len(bars) and bars[i].start == t:
-            out.append(bars[i])
-            last = bars[i].close
-            i += 1
-        else:
-            out.append(Candle(bars[0].symbol, t, last, last, last, last, 0.0))
-        t += timedelta(minutes=1)
-    return out
-
-
 class BarLoader:
     """Returns the regular-hours 1-minute bars of one symbol for one day."""
 
@@ -110,14 +91,13 @@ class BarLoader:
         path = bar_path(self.dir, symbol, day)
         if not path.exists() and self.source in ("polygon", "alpaca"):
             download([symbol], day, day, str(self.dir), self.source)
-        bars = read_csv(path, symbol) if path.exists() else []
-        return fill_gaps(bars, day) if "/" in symbol else bars
+        return read_csv(path, symbol) if path.exists() else []
 
 
 def download(symbols: list[str], start: date, end: date, csv_dir: str, source: str = "polygon") -> list[Path]:
     """Download minute bars for every trading day in [start, end] to CSV.
 
-    source "alpaca": Alpaca's full-market (SIP) stock history or crypto bars, using your Alpaca keys.
+    source "alpaca": Alpaca's full-market (SIP) stock history, using your Alpaca keys.
     source "polygon": Polygon (the free plan allows about 5 requests a minute, so this is slow)."""
 
     def client():

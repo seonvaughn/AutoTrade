@@ -226,7 +226,7 @@ class DashboardBot(Bot):
 
     def on_fill(self, e: Fill) -> None:
         it = e.intent
-        what = it.contract.underlying if it.contract.kind == "crypto" else it.contract.right.value
+        what = it.contract.right.value
         if it.purpose is Purpose.ENTRY:
             text = f"{it.worker} {e.ts:%H:%M} {it.contract.right.arrow} bought {fmt_qty(e.qty)} {what} @ {e.price:,.2f}"
             tone = "fire"
@@ -350,7 +350,7 @@ class DashboardBot(Bot):
         close = cal.session_close(self.day).isoformat() if self.day else None
         orch = self.bot("orchestrator")
         return {
-            "mode": self.cfg.mode, "market": self.cfg.market, "day": self.day.isoformat() if self.day else None,
+            "mode": self.cfg.mode, "day": self.day.isoformat() if self.day else None,
             "clock": self.clock.isoformat() if self.clock else None, "session": self.session, "close": close,
             "health": self.health, "kill": self.kill, "vault": round(self.vault, 2),
             "prices": self.prices, "workers": [self.worker_state(w) for w in self.workers],

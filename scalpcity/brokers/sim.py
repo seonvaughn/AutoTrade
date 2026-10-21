@@ -1,7 +1,7 @@
 """Simulated broker: fills marketable orders immediately at the modeled bid/ask.
 
 Buys pay the ask, sells receive the bid (you always cross the spread), plus
-fees (per contract for options, a % of value for crypto). Non-marketable limit
+fees per contract. Non-marketable limit
 orders are cancelled (IOC behaviour). Tracks cash and the pattern-day-trader
 count like a real margin account.
 """

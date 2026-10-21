@@ -29,12 +29,3 @@ def make_cfg(**over) -> Config:
 @pytest.fixture
 def cfg():
     return make_cfg()
-
-
-@pytest.fixture(autouse=True)
-def _options_market():
-    """Each test starts in the options market (crypto tests switch it themselves)."""
-    from scalpcity.core import calendar as cal
-    cal.set_market("options")
-    yield
-    cal.set_market("options")

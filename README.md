@@ -2,7 +2,8 @@
 
 A rebuild of the "Scalp City" system from the @NICKAFISCHER video. Python bots day-trade options on
 QQQ, SPY and IWM (plus NVDA, TSLA, AAPL, META, AMZN, AMD and MSFT) using the three triggers he
-describes. A separate crypto edition runs the same triggers on BTC, ETH and SOL around the clock. A 3D
+describes. The city trades options only (the old crypto edition is archived for its own city later: see
+`docs/crypto-city-archive.md`). A 3D
 city dashboard shows each worker as a tower you can walk into, with the bots that run it standing
 around the city.
 
@@ -131,10 +132,6 @@ python -m scalpcity replay --day 2026-10-02 --source alpaca --pace 1
 # Paper trading (Alpaca paper broker + Alpaca live data), during market hours
 python -m scalpcity paper
 #   open http://127.0.0.1:8765. Ctrl-C closes open positions, then stops.
-
-# Crypto edition: any day, any hour (own dashboard on :8766 and own database)
-python -m scalpcity --config config.crypto.yaml paper
-python -m scalpcity --config config.crypto.yaml backtest --start 2026-09-01 --end 2026-10-15
 ```
 
 ### The city
@@ -252,16 +249,8 @@ fewer trades, and judge it by backtests over many weeks, not one day.
   (IWM is the likeliest) can go 30 s without a trade, which pauses new entries until one arrives.
   Raise `stale_data_seconds` if that happens often. `indicative` option quotes can be wider than the
   real market, so the spread filter may skip more contracts than it would with `opra`.
-- **The crypto edition lost money in every backtest so far.** On Alpaca crypto bars, 2026-10-01 to
-  10-15 with the shipped `config.crypto.yaml`: 344 trades, 2.3% win rate, −$2,765, no green days. A
-  slower variant (no reversal exits, trend filter, EMA50 + range triggers only), 2026-09-01 to 10-15:
-  474 trades, 8.2% win rate, −$3,901. The triggers flip often on 1-minute coin candles, and Alpaca's
-  ~0.25% fee per side means a trade must move about 0.5% just to break even. Use the crypto edition
-  to watch the machinery work on weekends, not to make money, unless your own backtests say otherwise.
 - **30-second candles in backtests are approximate.** Historical data is 1-minute, so a past minute
   is split along the same smooth path replays use. Live, 30-second candles come from real trades.
 - **No win rate is promised, and 95% isn't a realistic target.** Win rate alone can mislead: a bot that
   wins 95% of the time with tiny targets and big stops still loses money. Judge results by profit
   factor (dollars won ÷ dollars lost) and net P&L over many weeks.
-- **Crypto "VWAP" has no real volume behind it.** Alpaca's crypto venue is thin, so candles are built
-  from quote midpoints and VWAP behaves like an average price since midnight ET.

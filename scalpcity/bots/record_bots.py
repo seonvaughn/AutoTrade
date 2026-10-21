@@ -6,9 +6,8 @@ from datetime import date
 from ..core.events import (ContractSelected, DailySummary, EntryVetoed, KeyLevels, MorningPlan, TradeReview, ResearchCleared, Fill, KillSwitch, Leaderboard, OptionQuote, OrderRejected, OrderSide,
                            PnLUpdate, PositionOpened, Purpose, SessionEvent, SessionKind, SetupUpdate, SignalSkipped,
                            ContractRejected, Thought, TradeClosed, WorkerStats, WorkerStatus)
-from ..core.costs import QTY_EPS, fmt_qty
+from ..core.costs import QTY_EPS
 from .base import Bot
-from .signal_filter_bot import LONG_ONLY
 
 TRIGGER_LABEL = {"vwap_cross": "VWAP", "ema50_cross": "EMA50", "orb": "opening range",
                  "zone_reaction": "supply/demand zone", "structure_break": "5m structure break",
@@ -184,7 +183,7 @@ class JournalBot(Bot):
                     self.say(e.ts, w, "setup faded, standing down")
 
     def on_skipped(self, e: SignalSkipped) -> None:
-        if e.reason in {"already in a trade", "clocked out for the day", "order already working", LONG_ONLY} \
+        if e.reason in {"already in a trade", "clocked out for the day", "order already working"} \
                 or e.reason.startswith("outside trading window"):
             return
         s = e.signal
@@ -194,11 +193,8 @@ class JournalBot(Bot):
         self.busy.add(e.worker)
         s = e.signal
         why = f" · {WHY.get(s.trigger, TRIGGER_LABEL[s.trigger])}" if s else ""
-        if e.contract.kind == "crypto":
-            text = f"FIRE ▲ BUY {fmt_qty(e.qty)} {e.contract.underlying} @ {e.entry_price:,.2f}{why}"
-        else:
-            under = f" ({e.contract.underlying} {s.close:.2f})" if s else ""
-            text = f"FIRE {e.contract.right.arrow} {e.contract.right.value} ×{e.qty:g} @ {e.entry_price:.2f}{under}{why}"
+        under = f" ({e.contract.underlying} {s.close:.2f})" if s else ""
+        text = f"FIRE {e.contract.right.arrow} {e.contract.right.value} ×{e.qty:g} @ {e.entry_price:.2f}{under}{why}"
         self.say(e.ts, e.worker, text, "fire")
         for key in list(self.armed):
             if key[0] == e.contract.underlying:

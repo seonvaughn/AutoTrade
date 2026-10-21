@@ -37,7 +37,7 @@ class ExecutionBot(Bot):
     async def _run(self, intent: OrderIntent, inline: bool) -> None:
         broker = self.ctx.broker
         exit_ = intent.purpose is Purpose.EXIT
-        mid_first = not exit_ and self.cfg.broker.entry_mid_first and intent.contract.kind == "option"
+        mid_first = not exit_ and self.cfg.broker.entry_mid_first
         attempts = 1 + (self.cfg.broker.exit_retries if exit_ else 1 if mid_first else 0)
         remaining, filled, notional, last_oid, last_err = intent.qty, 0, 0.0, "", "not filled"
         for attempt in range(attempts):
@@ -84,8 +84,6 @@ class ExecutionBot(Bot):
         q = await self.bot("options_chain").quote(intent.contract)
         if q is None or q.bid <= 0:
             return None
-        if intent.contract.kind == "crypto":  # walk down 0.05% of price per attempt
-            return q.bid * (1 - 0.0005 * attempt)
         return max(0.01, round(q.bid - 0.01 * attempt, 2))
 
     async def _wait(self, oid: str):
@@ -221,20 +219,10 @@ class ExitManagerBot(Bot):
 class ReconciliationBot(Bot):
     name = "reconciliation"
     skill = "Check the broker's real positions match what the bots think they hold"
-    CRYPTO_TOLERANCE = 0.02  # Alpaca takes crypto fees out of the coin received, so holdings run slightly short
-
-    @classmethod
-    def matches(cls, expected: dict, actual: dict) -> bool:
-        if expected.keys() != actual.keys():
-            return False
-        for k, want in expected.items():
-            have = actual[k]
-            if float(want).is_integer() and float(have).is_integer():
-                if want != have:
-                    return False
-            elif abs(have - want) > cls.CRYPTO_TOLERANCE * max(abs(want), abs(have)):
-                return False
-        return True
+    @staticmethod
+    def matches(expected: dict, actual: dict) -> bool:
+        """Whole contracts on both sides, so they must match exactly."""
+        return expected.keys() == actual.keys() and all(round(actual[k]) == round(v) for k, v in expected.items())
 
     def setup(self) -> None:
         self.last = None

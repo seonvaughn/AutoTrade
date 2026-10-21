@@ -5,8 +5,8 @@ quotes for every contract we hold so the exit manager and ledger can react.
 
 Sim (replay/backtest): Black-Scholes on trading-time from the replayed underlying
 (or real option bars when sim.use_historical_option_bars is on), with a modeled
-bid/ask spread and expiry calendar. Crypto: the replayed price ± a modeled spread.
-Live/paper: Alpaca or Polygon option snapshots (data.live_data), Alpaca crypto quotes.
+bid/ask spread and expiry calendar.
+Live/paper: Alpaca or Polygon option snapshots (data.live_data).
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from datetime import date, datetime, timedelta
 from typing import Optional
 
 from ..core import calendar as cal
-from ..core.events import CryptoAsset, OptionContract, OptionQuote, PositionOpened, Side, Tick, TradeClosed
+from ..core.events import OptionContract, OptionQuote, PositionOpened, Side, Tick, TradeClosed
 from ..core.options_math import bs_delta, bs_price, round_tick
 from .base import Bot
 
@@ -26,7 +26,7 @@ class SimChain:
         self.spot: dict[str, float] = {}
         self.spot_by_minute: dict[str, dict[datetime, float]] = {}  # last price seen in each minute
         self.hist = None
-        if cfg.sim.use_historical_option_bars and not cal.is_crypto() and cfg.data.source != "synthetic":
+        if cfg.sim.use_historical_option_bars and cfg.data.source != "synthetic":
             from ..data.option_bars import HistoricalOptionBars
             self.hist = HistoricalOptionBars(cfg.data.option_bars_dir, cfg.data.source)
 
@@ -44,9 +44,6 @@ class SimChain:
         spot = self.spot.get(c.underlying)
         if spot is None:
             return None
-        if c.kind == "crypto":
-            half = spot * self.cfg.sim.crypto_half_spread_pct / 100.0
-            return OptionQuote(ts, c, spot - half, spot + half, None, None, spot)
         minutes = cal.minutes_to_expiry(ts, c.expiry)
         iv = self.cfg.sim.iv.get(c.underlying, 0.2)
         is_call = c.right is Side.CALL
@@ -144,9 +141,6 @@ class OptionsChainBot(Bot):
         if self.sim:
             return self.sim.quote(contract, self.last_ts)
         return await self._poly().quote(contract)
-
-    async def crypto_quote(self, symbol: str) -> Optional[OptionQuote]:
-        return await self.quote(CryptoAsset(symbol))
 
     def quote_now(self, contract) -> Optional[OptionQuote]:
         """Synchronous quote for the simulated broker."""

@@ -200,8 +200,9 @@ To see the city working, use the `run-scalpcity` skill (`.claude/skills/run-scal
 - **TJR boot camp (2026-10-17):** 45 of 46 videos studied (`docs/tjr-bootcamp/`). **Day 21 ("How to Take a Win",
   https://www.youtube.com/watch?v=z9p7OThLkr4) is still missing.** YouTube blocks the cloud server, so ask the owner to
   paste its transcript, then read it in full and write `21-how-to-take-a-win.md`.
-- **News dates:** the 2026 FOMC days are in `config.yaml`. The CPI/PPI/NFP dates there are unverified (bls.gov is
-  unreachable from cloud sessions) and incomplete. Ask the owner to check https://www.bls.gov/schedule/.
+- **News dates:** 2026 FOMC, CPI, PPI and NFP days through December are in `config.yaml`, re-checked 2026-10-21
+  against the BLS's published schedule via search (bls.gov itself doesn't resolve from cloud sessions). 2027 dates
+  aren't out yet: add them when the BLS publishes its 2027 schedule.
 - **TJR first results (2026-10-17):**
   - Backtest Sep 1–Oct 15 (real option bars, gate on): −$412, 4 trades (1 win), PF 0.15. 106 entries vetoed, mostly
     "no edge" over the past 5 sessions. Too few trades to judge.

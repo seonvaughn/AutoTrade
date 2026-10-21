@@ -77,9 +77,11 @@ smc:                        # TJR's boot camp model (docs/tjr-bootcamp/README.md
 
 news:                       # TJR Day 19: never trade CPI, PPI, FOMC or NFP days; wait after other big releases
   enabled: true
-  # FOMC decision days: 2026 schedule as published (Jan 28, Mar 18, Apr 29, Jun 17, Jul 29, Sep 16, Oct 28, Dec 9).
-  # CPI / PPI / jobs dates below are UNVERIFIED (third-party calendars; bls.gov was unreachable from the cloud
-  # session). Check https://www.bls.gov/schedule/ and add the rest: a missing date means NO blackout that day.
+  # FOMC decision days: the Fed's 2026 schedule (Jan 28, Mar 18, Apr 29, Jun 17, Jul 29, Sep 16, Oct 28, Dec 9).
+  # CPI / PPI / jobs (NFP) dates re-checked 2026-10-21 against the BLS's own published schedule (the next dates are
+  # printed in each BLS release, e.g. the September PPI report and Employment Situation), matched by other calendars.
+  # bls.gov itself can't be reached from the cloud session; re-check https://www.bls.gov/schedule/ when 2027 is out.
+  # A missing date means NO blackout that day. 2027 dates aren't published yet.
   blackout_days:
     "2026-01-28": FOMC
     "2026-03-18": FOMC
@@ -87,12 +89,17 @@ news:                       # TJR Day 19: never trade CPI, PPI, FOMC or NFP days
     "2026-06-17": FOMC
     "2026-07-29": FOMC
     "2026-09-16": FOMC
-    "2026-10-02": NFP (unverified)
-    "2026-10-14": CPI (unverified)
-    "2026-10-15": PPI (unverified)
+    "2026-10-02": NFP (September jobs)
+    "2026-10-14": CPI (September)
+    "2026-10-15": PPI (September)
     "2026-10-28": FOMC
-    "2026-12-04": NFP
+    "2026-11-06": NFP (October jobs)
+    "2026-11-10": CPI (October)
+    "2026-11-13": PPI (October)
+    "2026-12-04": NFP (November jobs)
     "2026-12-09": FOMC
+    "2026-12-10": CPI (November)
+    "2026-12-15": PPI (November)
   events: {}                # "2026-10-16 10:00": Retail sales  -> no entries until 30 min after
   wait_minutes: 30
   derisk_days:              # TJR Day 39: half size (half days are automatic)

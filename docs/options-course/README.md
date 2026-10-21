@@ -9,7 +9,7 @@ request: "a deep study of this course … implement steps, rules, education, and
 | 3 | Understanding Option Prices | [03-option-prices.md](03-option-prices.md) |
 | 4 | Option Greeks Explained | [04-option-greeks.md](04-option-greeks.md) |
 | 5 | How to Buy Options | [05-buying-options.md](05-buying-options.md) |
-| 6 | How to Sell Options (https://www.youtube.com/watch?v=2Vqz9GXkr5I) | **missing**: YouTube rate-limits the cloud server (HTTP 429). Its material is also taught in the 4-hour course (q2–q3 notes). |
+| 6 | How to Sell Options | [06-selling-options.md](06-selling-options.md) (from the transcript the owner pasted) |
 | 7 | Options Trading for Beginners (4-hour course) | [q1](notes-4h-q1.md) · [q2](notes-4h-q2.md) · [q3](notes-4h-q3.md) · [q4](notes-4h-q4.md) |
 
 Every transcript was read in full. The 4-hour course was split into four parts, each read by its own reader agent
@@ -64,5 +64,3 @@ repo's own backtests:
 - **IV rank / IV percentile:** the course mentions comparing IV with its history but defines no rule. The bots
   store no IV history yet. Worth adding as data first, a rule later, if a backtest shows it matters.
 
-## Still owed
-- Video 6 ("How to Sell Options"): the owner can paste its transcript; it covers selling, which the bots don't do.

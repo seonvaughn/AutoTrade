@@ -120,7 +120,10 @@ class AlpacaDataClient:
 
     async def minute_bars(self, ticker: str, day: date, rth_only: bool = True) -> list[Candle]:
         start = datetime.combine(day, datetime.min.time(), cal.ET)
-        params = {"timeframe": "1Min", "start": start.isoformat(), "end": (start + timedelta(days=1)).isoformat(),
+        end = start + timedelta(days=1)
+        if self.stock_feed == "sip":
+            end = sip_end(end)                    # the free plan's SIP history stops 15 minutes back
+        params = {"timeframe": "1Min", "start": start.isoformat(), "end": end.isoformat(),
                   "feed": self.stock_feed, "adjustment": "raw", "sort": "asc", "limit": 10000}
         res = await self._paged(f"/v2/stocks/{ticker}/bars", params, "bars")
         return _bars_from_results(ticker, res, rth_only)

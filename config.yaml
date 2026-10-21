@@ -136,7 +136,7 @@ workers:
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     pm_start: "13:00"       # afternoon session, only if the account took no morning trade; its own record must
-    pm_end: "15:00"         # prove an edge (it lost in every test so far: docs/research-log.md), so expect vetoes
+    pm_end: "15:30"         # prove an edge (it lost in every test so far: docs/research-log.md), so expect vetoes
     daily_goal: 600
     max_daily_loss: 300
 
@@ -151,7 +151,7 @@ workers:
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     pm_start: "13:00"       # afternoon session, only if the account took no morning trade; its own record must
-    pm_end: "15:00"         # prove an edge (it lost in every test so far: docs/research-log.md), so expect vetoes
+    pm_end: "15:30"         # prove an edge (it lost in every test so far: docs/research-log.md), so expect vetoes
     daily_goal: 600
     max_daily_loss: 300
 
@@ -166,7 +166,7 @@ workers:
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     pm_start: "13:00"       # afternoon session, only if the account took no morning trade; its own record must
-    pm_end: "15:00"         # prove an edge (it lost in every test so far: docs/research-log.md), so expect vetoes
+    pm_end: "15:30"         # prove an edge (it lost in every test so far: docs/research-log.md), so expect vetoes
     daily_goal: 600
     max_daily_loss: 300
 
@@ -180,7 +180,7 @@ workers:
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     pm_start: "13:00"       # afternoon session, only if the account took no morning trade; its own record must
-    pm_end: "15:00"         # prove an edge (it lost in every test so far: docs/research-log.md), so expect vetoes
+    pm_end: "15:30"         # prove an edge (it lost in every test so far: docs/research-log.md), so expect vetoes
     daily_goal: 600
     max_daily_loss: 300
 
@@ -194,7 +194,7 @@ workers:
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     pm_start: "13:00"       # afternoon session, only if the account took no morning trade; its own record must
-    pm_end: "15:00"         # prove an edge (it lost in every test so far: docs/research-log.md), so expect vetoes
+    pm_end: "15:30"         # prove an edge (it lost in every test so far: docs/research-log.md), so expect vetoes
     daily_goal: 600
     max_daily_loss: 300
 
@@ -210,7 +210,7 @@ workers:
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     pm_start: "13:00"       # afternoon session, only if the account took no morning trade; its own record must
-    pm_end: "15:00"         # prove an edge (it lost in every test so far: docs/research-log.md), so expect vetoes
+    pm_end: "15:30"         # prove an edge (it lost in every test so far: docs/research-log.md), so expect vetoes
     daily_goal: 600
     max_daily_loss: 300
 
@@ -224,7 +224,7 @@ workers:
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     pm_start: "13:00"       # afternoon session, only if the account took no morning trade; its own record must
-    pm_end: "15:00"         # prove an edge (it lost in every test so far: docs/research-log.md), so expect vetoes
+    pm_end: "15:30"         # prove an edge (it lost in every test so far: docs/research-log.md), so expect vetoes
     daily_goal: 600
     max_daily_loss: 300
 
@@ -238,7 +238,7 @@ workers:
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     pm_start: "13:00"       # afternoon session, only if the account took no morning trade; its own record must
-    pm_end: "15:00"         # prove an edge (it lost in every test so far: docs/research-log.md), so expect vetoes
+    pm_end: "15:30"         # prove an edge (it lost in every test so far: docs/research-log.md), so expect vetoes
     daily_goal: 600
     max_daily_loss: 300
 
@@ -252,7 +252,7 @@ workers:
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     pm_start: "13:00"       # afternoon session, only if the account took no morning trade; its own record must
-    pm_end: "15:00"         # prove an edge (it lost in every test so far: docs/research-log.md), so expect vetoes
+    pm_end: "15:30"         # prove an edge (it lost in every test so far: docs/research-log.md), so expect vetoes
     daily_goal: 600
     max_daily_loss: 300
 
@@ -266,7 +266,7 @@ workers:
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     pm_start: "13:00"       # afternoon session, only if the account took no morning trade; its own record must
-    pm_end: "15:00"         # prove an edge (it lost in every test so far: docs/research-log.md), so expect vetoes
+    pm_end: "15:30"         # prove an edge (it lost in every test so far: docs/research-log.md), so expect vetoes
     daily_goal: 600
     max_daily_loss: 300
 
@@ -280,7 +280,7 @@ workers:
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     pm_start: "13:00"       # afternoon session, only if the account took no morning trade; its own record must
-    pm_end: "15:00"         # prove an edge (it lost in every test so far: docs/research-log.md), so expect vetoes
+    pm_end: "15:30"         # prove an edge (it lost in every test so far: docs/research-log.md), so expect vetoes
     daily_goal: 600
     max_daily_loss: 300
 
@@ -294,6 +294,6 @@ workers:
     start_time: "09:35"
     end_time: "11:00"       # TJR Day 29: a trade within the first 1.5 hours of the NY open, or none
     pm_start: "13:00"       # afternoon session, only if the account took no morning trade; its own record must
-    pm_end: "15:00"         # prove an edge (it lost in every test so far: docs/research-log.md), so expect vetoes
+    pm_end: "15:30"         # prove an edge (it lost in every test so far: docs/research-log.md), so expect vetoes
     daily_goal: 600
     max_daily_loss: 300

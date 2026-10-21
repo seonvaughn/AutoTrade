@@ -1,0 +1,1 @@
+ib_async>=2.0   # the futures city: Interactive Brokers (needs Python 3.10+)

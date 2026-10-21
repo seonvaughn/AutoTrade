@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import Enum
-from typing import ClassVar, Optional
+from typing import ClassVar, Optional, Union
 
 
 class Side(str, Enum):
@@ -180,6 +180,8 @@ class OptionContract:
     kind: ClassVar[str] = "option"
     multiplier: ClassVar[int] = 100   # one contract = 100 shares
 
+    way: ClassVar[int] = 1            # a bought option: always long the contract
+
     @property
     def order_symbol(self) -> str:
         return self.occ
@@ -202,7 +204,42 @@ class OptionContract:
         return OptionContract(root, exp, int(rest[7:]) / 1000.0, right)
 
 
-Instrument = OptionContract
+MONTH_CODES = "FGHJKMNQUVXZ"          # futures month letters, January..December
+
+
+@dataclass(frozen=True)
+class FuturesContract:
+    """One futures contract month held long (right=CALL) or short (right=PUT), e.g. MESZ6. The direction lives on the
+    contract so a position knows which way it points; `occ` is the exchange symbol (both directions share it)."""
+    underlying: str                   # root: MES, MNQ, MGC
+    expiry: date                      # last trading day
+    right: Side                       # CALL = long, PUT = short
+    multiplier: float = 5.0           # dollars per point
+    tick: float = 0.25
+    fee: float = 0.62                 # broker + exchange + regulatory, per contract per side
+    margin: float = 2500.0            # capital set aside per contract
+    month: date = date(2000, 1, 1)    # contract month (first of the month)
+    kind: ClassVar[str] = "future"
+    strike: ClassVar[None] = None
+
+    @property
+    def way(self) -> int:
+        return 1 if self.right is Side.CALL else -1
+
+    @property
+    def occ(self) -> str:
+        return f"{self.underlying}{MONTH_CODES[self.month.month - 1]}{self.month.year % 10}"
+
+    @property
+    def order_symbol(self) -> str:
+        return self.occ
+
+    @property
+    def label(self) -> str:
+        return f"{self.occ} {'LONG' if self.right is Side.CALL else 'SHORT'}"
+
+
+Instrument = Union[OptionContract, FuturesContract]
 
 
 @dataclass

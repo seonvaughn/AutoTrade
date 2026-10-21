@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 
 from ..core import calendar as cal
 from ..core.costs import QTY_EPS, fees
+from ..core.futures import round_tick
 from ..core.events import (Alert, Fill, Heartbeat, HealthStatus, KillSwitch, OptionQuote, OrderApproved, OrderFailed,
                            OrderIntent, OrderRejected, OrderSide, PositionOpened, Purpose, SessionEvent, SessionKind,
                            Side, Signal, Tick, TradeClosed)
@@ -37,7 +38,7 @@ class ExecutionBot(Bot):
     async def _run(self, intent: OrderIntent, inline: bool) -> None:
         broker = self.ctx.broker
         exit_ = intent.purpose is Purpose.EXIT
-        mid_first = not exit_ and self.cfg.broker.entry_mid_first
+        mid_first = not exit_ and self.cfg.broker.entry_mid_first and intent.contract.kind == "option"
         attempts = 1 + (self.cfg.broker.exit_retries if exit_ else 1 if mid_first else 0)
         remaining, filled, notional, last_oid, last_err = intent.qty, 0, 0.0, "", "not filled"
         for attempt in range(attempts):
@@ -81,10 +82,14 @@ class ExecutionBot(Bot):
         return mid if mid < intent.limit else None
 
     async def _exit_limit(self, intent: OrderIntent, attempt: int):
+        """Walk the exit toward the market: a sale from the bid down, a buy-to-cover (short future) from the ask up."""
         q = await self.bot("options_chain").quote(intent.contract)
         if q is None or q.bid <= 0:
             return None
-        return max(0.01, round(q.bid - 0.01 * attempt, 2))
+        tick = getattr(intent.contract, "tick", 0.01)
+        if intent.side is OrderSide.BUY:
+            return round_tick(q.ask + tick * attempt, tick)
+        return max(tick, round_tick(q.bid - tick * attempt, tick))
 
     async def _wait(self, oid: str):
         broker = self.ctx.broker
@@ -211,9 +216,12 @@ class ExitManagerBot(Bot):
         if p["exiting"] or p["qty"] <= QTY_EPS:
             return
         p["exiting"] = True
-        bid = p["quote"].bid if p["quote"] else 0.01
-        self.emit(OrderIntent(ts, worker, p["contract"], OrderSide.SELL, p["qty"], max(bid, 0.01), Purpose.EXIT,
-                              reason))
+        c, q = p["contract"], p["quote"]
+        if c.way > 0:                        # sell what we bought
+            side, px = OrderSide.SELL, max(q.bid if q else 0.01, 0.01)
+        else:                                # buy back a short future
+            side, px = OrderSide.BUY, (q.ask if q else p["entry"])
+        self.emit(OrderIntent(ts, worker, c, side, p["qty"], px, Purpose.EXIT, reason))
 
 
 class ReconciliationBot(Bot):

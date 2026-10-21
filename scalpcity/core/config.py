@@ -79,6 +79,7 @@ class RiskConfig:
     max_open_positions: int = 3
     max_premium_exposure: float = 8000.0
     max_spread_pct: float = 12.0
+    max_spread_ticks: int = 4         # futures city: skip a contract quoted wider than this
     min_premium: float = 0.30
     max_premium: float = 15.0
     pdt_guard: bool = True
@@ -166,6 +167,7 @@ class SimConfig:
     min_half_spread: float = 0.01
     fee_per_contract: float = 0.03    # regulatory fees (Alpaca options are commission-free)
     strike_step: dict[str, float] = field(default_factory=lambda: {"SPY": 1.0, "QQQ": 1.0, "IWM": 1.0})
+    futures_spread_ticks: int = 1     # futures city: modeled bid/ask spread in ticks (MES/MNQ usually trade 1 tick wide)
     use_historical_option_bars: bool = False  # backtest with real option prices (data.source: polygon | alpaca)
     # weekdays (0=Mon .. 4=Fri) with a listed expiry, per symbol; unlisted symbols get Fridays only.
     # A holiday on a listed weekday moves that expiry to the trading day before. Live trading uses the
@@ -189,7 +191,12 @@ class DataConfig:
 
 @dataclass
 class BrokerConfig:
-    name: str = "sim"                 # sim | alpaca
+    name: str = "sim"                 # sim | alpaca (options city) | ibkr (futures city)
+    # Interactive Brokers (futures city): the IB Gateway or TWS running on this Mac. 4002 = Gateway paper, 7497 = TWS
+    # paper. Live ports (4001, 7496) and non-paper accounts (paper account ids start with "DU") are refused.
+    ib_host: str = "127.0.0.1"
+    ib_port: int = 4002
+    ib_client_id: int = 17
     order_timeout_seconds: float = 8.0
     exit_retries: int = 3
     # Entries: a limit at the mid first, then at the ask if it doesn't fill within order_timeout_seconds (options
@@ -207,6 +214,8 @@ class DashboardConfig:
 @dataclass
 class Config:
     mode: str = "paper"
+    market: str = "options"           # options (the options city) | futures (the futures city, config.futures.yaml)
+    futures: dict = field(default_factory=dict)   # per-root overrides of core/futures.py SPECS (margin, fee, ratio...)
     live_trading_enabled: bool = False
     workers: list[WorkerConfig] = field(default_factory=list)
     risk: RiskConfig = field(default_factory=RiskConfig)
@@ -294,11 +303,24 @@ def validate(cfg: Config) -> None:
         _dt.strptime(str(d), "%Y-%m-%d")
     for t in cfg.news.events:
         _dt.strptime(str(t), "%Y-%m-%d %H:%M")
-    if cfg.data.source not in {"synthetic", "csv", "polygon", "alpaca"}:
-        raise ValueError("data.source must be synthetic|csv|polygon|alpaca")
+    if cfg.market not in {"options", "futures"}:
+        raise ValueError("market must be options|futures")
+    if cfg.data.source not in {"synthetic", "csv", "polygon", "alpaca", "proxy"}:
+        raise ValueError("data.source must be synthetic|csv|polygon|alpaca|proxy")
     for w in cfg.workers:
         if "/" in w.symbol:
-            raise ValueError(f"{w.name}: {w.symbol} is not a stock or ETF; the city trades options only")
+            raise ValueError(f"{w.name}: {w.symbol} is not a stock, ETF or future; this city trades options only")
+    if cfg.market == "futures":
+        from .futures import SPECS
+        for w in cfg.workers:
+            if w.symbol not in SPECS and w.symbol not in cfg.futures:
+                raise ValueError(f"{w.name}: {w.symbol} is not a known future (known: {', '.join(SPECS)})")
+            if w.exits.measure == "premium":
+                raise ValueError(f"{w.name}: futures exits must be measured on the chart (exits.measure: structure)")
+        if cfg.data.source in {"polygon", "alpaca"}:
+            raise ValueError("the futures city backtests on data.source: proxy (ETF stand-ins) or synthetic")
+    elif cfg.broker.name == "ibkr" or cfg.data.source == "proxy":
+        raise ValueError("broker ibkr and data.source proxy belong to the futures city (market: futures)")
     names = [w.name for w in cfg.workers]
     if len(names) != len(set(names)):
         raise ValueError("worker names must be unique")
@@ -329,7 +351,15 @@ def validate(cfg: Config) -> None:
             raise ValueError("mode=live requires live_trading_enabled: true in config")
         if os.environ.get(LIVE_CONFIRM_ENV) != LIVE_CONFIRM_VALUE:
             raise ValueError(f"mode=live requires env {LIVE_CONFIRM_ENV}={LIVE_CONFIRM_VALUE}")
-    if cfg.mode in {"paper", "live"}:
+    if cfg.mode in {"paper", "live"} and cfg.market == "futures":
+        if cfg.broker.name != "ibkr":
+            raise ValueError("the futures city trades through broker.name: ibkr")
+        if cfg.broker.ib_port in (4001, 7496):
+            raise ValueError("broker.ib_port 4001/7496 are Interactive Brokers LIVE ports: use 4002 (Gateway paper) "
+                             "or 7497 (TWS paper)")
+        if cfg.mode == "live":
+            raise ValueError("the futures city is paper only")
+    elif cfg.mode in {"paper", "live"}:
         if cfg.broker.name != "alpaca":
             raise ValueError("paper/live modes need broker.name: alpaca")
         if cfg.data.live_data not in {"alpaca", "polygon"}:

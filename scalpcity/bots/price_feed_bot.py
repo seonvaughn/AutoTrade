@@ -20,7 +20,11 @@ class PriceFeedBot(Bot):
     skill = "Stream underlying prices (replayed or live) into the bus"
 
     def setup(self) -> None:
-        self.loader = BarLoader(self.cfg.data.source, self.cfg.data.csv_dir)
+        if self.cfg.data.source == "proxy":          # the futures city's stand-in history (data/proxy.py)
+            from ..data.proxy import ProxyBarLoader
+            self.loader = ProxyBarLoader(self.cfg)
+        else:
+            self.loader = BarLoader(self.cfg.data.source, self.cfg.data.csv_dir)
         self.days: list[date] = []
         self.pace = 0.0  # seconds of wall time per market minute (0 = as fast as possible)
         self.progress = None  # optional callback(day, minute_index, total)
@@ -106,7 +110,10 @@ class PriceFeedBot(Bot):
 
         await self._backfill(live_client(self.cfg))
         d = self.cfg.data
-        if d.live_data == "alpaca":
+        if self.cfg.market == "futures":
+            from ..data.ibkr_data import IBStream
+            stream = IBStream(self.cfg, self._on_trade, self._on_status)
+        elif d.live_data == "alpaca":
             from ..data.alpaca_data import AlpacaStream
             stream = AlpacaStream(self.cfg.symbols, self._on_trade, d.alpaca_stock_feed, self._on_status)
         else:

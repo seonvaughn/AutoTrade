@@ -161,7 +161,7 @@ class DashboardBot(Bot):
     def on_opened(self, e: PositionOpened) -> None:
         self.positions[e.worker] = {"contract": e.contract.occ, "right": e.contract.right.value,
                                     "strike": e.contract.strike, "label": e.contract.label,
-                                    "kind": e.contract.kind, "mult": e.contract.multiplier,
+                                    "kind": e.contract.kind, "mult": e.contract.multiplier, "way": e.contract.way,
                                     "expiry": e.contract.expiry.isoformat() if e.contract.expiry else None,
                                     "qty": e.qty, "entry": e.entry_price,
                                     "mark": e.entry_price, "opened": e.ts.isoformat()}
@@ -276,7 +276,7 @@ class DashboardBot(Bot):
         pnl = self.pnl.get(w.name, {"realized": 0.0, "unrealized": 0.0})
         st = self.stats[w.name]
         if pos:
-            pos = {**pos, "pnl": round((pos["mark"] - pos["entry"]) * pos["qty"] * pos["mult"], 2)}
+            pos = {**pos, "pnl": round(pos.get("way", 1) * (pos["mark"] - pos["entry"]) * pos["qty"] * pos["mult"], 2)}
         crew = list(dict.fromkeys([b for t in w.triggers for b in TRIGGER_BOTS.get(t, [])] + SHARED_CREW))
         edge_bot = self.bot("edge_tracker")
         today = self.day or (self.clock.date() if self.clock else None)
@@ -350,7 +350,7 @@ class DashboardBot(Bot):
         close = cal.session_close(self.day).isoformat() if self.day else None
         orch = self.bot("orchestrator")
         return {
-            "mode": self.cfg.mode, "day": self.day.isoformat() if self.day else None,
+            "mode": self.cfg.mode, "market": self.cfg.market, "day": self.day.isoformat() if self.day else None,
             "clock": self.clock.isoformat() if self.clock else None, "session": self.session, "close": close,
             "health": self.health, "kill": self.kill, "vault": round(self.vault, 2),
             "prices": self.prices, "workers": [self.worker_state(w) for w in self.workers],

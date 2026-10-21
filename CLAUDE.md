@@ -15,9 +15,12 @@ towers trade now: start with its `README.md`).
 - Don't weaken a safety rail (kill switch, daily loss limits, flatten time, stale-data pause,
   position reconciliation, PDT guard) to make a test or backtest pass.
 - Report backtest results honestly, losses included. Nothing here is proven profitable.
-- **Options only.** The owner removed crypto on 2026-10-21 and wants it kept for a separate crypto city later
-  (`docs/crypto-city-archive.md` lists every crypto file and bot; all of it is in commit `7a28e85`). Don't add crypto
-  back to this city.
+- **Options only in the options city.** The owner removed crypto on 2026-10-21 and wants it kept for a separate crypto
+  city later (`docs/crypto-city-archive.md` lists every crypto file and bot; all of it is in commit `7a28e85`). Don't add
+  crypto back. Futures live in their **own city** (`config.futures.yaml`, `market: futures`): never mix them into
+  `config.yaml`.
+- **The futures city is paper only.** Interactive Brokers paper (`broker.name: ibkr`): config refuses live mode and the
+  live ports 4001/7496, and `brokers/ibkr_conn.paper_only` refuses any login whose accounts don't start with "DU"/"DF".
 - The owner wants "no guessing": every entry must clear the research gate (evidence from past
   sessions). Don't add a path that opens a position without a `ResearchCleared` event, and don't
   promise accuracy or profits: say what the evidence shows and what it can't.
@@ -40,6 +43,7 @@ scalpcity/
 dashboard/           index.html, app.js (three.js r160, vendored), style.css: the city
 tests/               pytest, all offline (mocked HTTP), ~60 tests, < 20 s
 config.yaml          options workers (12 towers)      -> dashboard :8765, data/scalpcity.db
+config.futures.yaml  futures workers (MES, MNQ, MGC)  -> dashboard :8767, data/scalpcity-futures.db (IBKR paper)
 ```
 
 Backtest, replay, paper and live run the exact same bots; only the price source and broker
@@ -130,7 +134,16 @@ To see the city working, use the `run-scalpcity` skill (`.claude/skills/run-scal
 - **History must be delivered candle by candle** (`PriceFeedBot._history`: emit, then drain, per
   candle). Queuing all history first and draining once made every past signal see only later
   days, and the edge tracker scored them all as 0R timeouts. Anything time-ordered depends on this.
-- **Instruments.** `OptionContract` only (multiplier 100, whole contracts; `Instrument` is an alias). Use
+- **Futures city (docs/futures-city.md).** `FuturesContract` (core/events.py) carries its direction in `right`
+  (CALL = long, PUT = short; `way` ±1); `occ` is the exchange symbol (MESZ6). `core/futures.py` holds the specs
+  (multiplier, tick, months, fee, margin, proxy ETF and ratio) and `front_month` (MES/MNQ roll 8 days before the 3rd
+  Friday; MGC on the 15th of the month before). The ledger opens/closes by `Purpose` and books `way × (exit − entry)`;
+  the sim broker holds signed futures positions and settles P&L in cash; the risk manager counts margin
+  (`decision_bots.capital`) and skips the PDT guard for futures; sizing caps contracts by the margin limit. Backtests use
+  `data.source: proxy` (`data/proxy.py`: SPY/QQQ/GLD bars scaled), live uses `brokers/ibkr.py` + `data/ibkr_data.py`
+  (ib_async, `requirements-futures.txt`, Python 3.10+, optional import so CI on 3.9 stays green). Futures exits must be
+  measured on the chart (`exits.measure: structure`).
+- **Instruments.** `OptionContract` (multiplier 100) and `FuturesContract`; `Instrument` is their union. Use
   `contract.multiplier`, `costs.fees()` and `costs.round_qty()`; never hard-code `* 100`. Config refuses a symbol with
   a "/" (a coin pair). `AlpacaBroker.positions()` returns option positions only, so stock or coins in the account
   never trip reconciliation.
@@ -236,3 +249,6 @@ To see the city working, use the `run-scalpcity` skill (`.claude/skills/run-scal
   missed morning, judged on its own record (afternoon lost in both test periods). Morning study now judges each
   strategy apart. Backtest Jun 1–Oct 15 as shipped: −$274, 48 trades, 47.9% wins, PF 0.94. The owner is starting
   live paper trading in the city.
+- **2026-10-21:** futures city built (MES/MNQ/MGC, IBKR paper, `Start Futures City.command`). First backtest on ETF
+  stand-ins, Jun 1–Oct 15: −$1,286, 54 trades, 46.3% wins, PF 0.79 (MES +$117, MNQ +$241, MGC −$1,644). Not yet
+  connected to a real IB Gateway: the owner still has to set up the paper account, market data and IB Gateway.

@@ -208,11 +208,19 @@ class OpeningRangeNTZBot(_ChartSignalBot):
             first, source = last - timedelta(days=100), "alpaca"
         else:
             return
+        if self.cfg.market == "futures":
+            from ..data.proxy import futures_premarket
+            self.pre = await futures_premarket(self.cfg, first, last, self.ctx.live)
+            return
         self.pre = await load_premarket(self.cfg.symbols, first, last, source, self.cfg.data.daily_dir)
 
     async def _fetch_today(self, d: date) -> None:
         from ..data.premarket import load_premarket
-        got = await load_premarket(self.cfg.symbols, d, d, "alpaca", self.cfg.data.daily_dir)
+        if self.cfg.market == "futures":
+            from ..data.proxy import futures_premarket
+            got = await futures_premarket(self.cfg, d, d, self.ctx.live)
+        else:
+            got = await load_premarket(self.cfg.symbols, d, d, "alpaca", self.cfg.data.daily_dir)
         for sym, days in got.items():
             self.pre.setdefault(sym, {}).update(days)
 

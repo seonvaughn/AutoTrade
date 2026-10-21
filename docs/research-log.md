@@ -139,3 +139,17 @@ untraded, and its setups keep being scored.
   the afternoon session on its own record, all agents on): **−$274, 48 trades, 47.9% wins, profit factor 0.94**,
   15 green / 17 red days, max drawdown $1,464. 836 entries blocked by the research gate. Against r2 (−$151, 45
   trades, PF 0.97) the three extra trades lost a little more. Still not profitable.
+
+## 2026-10-21: the futures city (MES, MNQ, MGC), first backtest on ETF stand-ins
+- Jun 1 – Oct 15, `config.futures.yaml` as shipped (TJR + NTZ retest, paper exploration: no record required,
+  2 trades a day, $300 risk, structure exits), `data.source: proxy` (SPY ×10 → MES, QQQ ×41 → MNQ, GLD ×10.85 → MGC,
+  1-tick spread, $0.62/$0.82 fees per side):
+  **−$1,286, 54 trades, 46.3% wins, profit factor 0.79**, 22 green / 28 red days, max drawdown $1,841.
+  | Tower | Trades | Win | P&L |
+  |---|---|---|---|
+  | MES | 25 | 52% | +$117 |
+  | MNQ | 9 | 56% | +$241 |
+  | MGC | 20 | 35% | −$1,644 |
+  19 MNQ/MGC setups were skipped because one contract would have risked more than $300.
+- Not profitable. The MES/MNQ numbers are small samples (n 25 and 9) and near break-even. MGC lost, but GLD is the
+  weakest stand-in for gold futures, so that result is the least reliable. No tower was dropped on this evidence.

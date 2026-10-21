@@ -173,6 +173,10 @@ class HigherTimeframeBot(Bot):
             first = last = cal.now_et().date()
         else:
             return
+        if self.cfg.market == "futures":
+            from ..data.proxy import futures_daily
+            self.daily = await futures_daily(self.cfg, first - timedelta(days=400), last, self.ctx.live)
+            return
         from ..data.daily import load_daily
         self.daily = await load_daily(self.cfg.symbols, first - timedelta(days=400), last,
                                       self.cfg.data.source if not self.ctx.live else "alpaca", self.cfg.data.daily_dir)

@@ -1,0 +1,161 @@
+# Scalp City: the FUTURES city (MES, MNQ, MGC), a second city next to the options city (config.yaml).
+# Same bots and rules (TJR's model, the opening-range retest, the research gate, the lessons book, every safety
+# rail); different instruments, broker and data. Start it with "Start Futures City.command".
+#   - Broker: Interactive Brokers PAPER (IB Gateway on 4002 or TWS on 7497, account id starting "DU"). Live ports and
+#     live accounts are refused.
+#   - Live prices: from Interactive Brokers (needs CME market data on the IBKR account).
+#   - Backtests in the cloud: data.source proxy = SPY / QQQ / GLD minute bars scaled to MES / MNQ / MGC prices
+#     (core/futures.py). An approximation, not real futures history. Live paper trading uses the real contracts.
+
+mode: paper
+market: futures
+live_trading_enabled: false # the futures city is paper only
+
+entry_cutoff: "15:30"       # no new trades after this (ET); the city trades the New York session only
+flatten_time: "15:55"       # close everything; no futures position is held overnight
+db_path: data/scalpcity-futures.db
+
+data:
+  source: proxy             # backtest/replay: proxy (ETF stand-ins) | synthetic (testing only)
+  csv_dir: data/bars        # the ETF minute bars the proxy scales
+  daily_dir: data/daily
+
+broker:
+  name: ibkr                # backtest/replay always use the built-in simulator
+  ib_host: 127.0.0.1
+  ib_port: 4002             # 4002 = IB Gateway paper (7497 = TWS paper). 4001/7496 (live) are refused.
+  ib_client_id: 17
+  order_timeout_seconds: 8
+  exit_retries: 3           # walk the exit price a tick at a time this many times, then send a market order
+
+futures: {}                 # per-contract overrides of core/futures.py, e.g. {MES: {margin: 2600}}
+
+risk:
+  max_daily_loss: 900       # kill switch: flatten everything and stop for the day
+  max_open_positions: 3
+  max_premium_exposure: 15000   # margin committed across open futures
+  max_spread_ticks: 4
+  pdt_guard: true           # the pattern-day-trader rule doesn't cover futures; kept for the option side only
+  max_trades_per_day: 2     # entries across all three towers per day (TJR Day 29)
+  max_delta_leverage: 20    # contract value of open futures <= 20x equity (a backstop)
+
+research:                   # no trade on a hunch: evidence from past sessions before every entry
+  enabled: true
+  require_record: false     # PAPER exploration (owner, 2026-10-21): trade on the strategy rules without a proven
+                            # record, to see what the bots do live; every rule and safety rail still applies. Never live.
+  lookback_days: 5          # sessions studied before trading (and rolling forward each day)
+  # A past signal "won" if price moved target_atr ATRs its way before stop_atr ATRs against it,
+  # within horizon_minutes (ATR = 1-minute ATR at the signal).
+  target_atr: 1.0
+  stop_atr: 0.7
+  horizon_minutes: 20
+  # A trigger trades a ticker only once it's proven there: enough past signals AND a real edge.
+  min_samples: 6
+  min_win_rate: 0.45        # a coin flip reaches 1.0 ATR before 0.7 ATR about 41% of the time
+  min_avg_r: 0.05
+  min_room_atr: 1.0         # skip if a marked level (prior day high, turning point...) is closer than this
+  level_merge_pct: 0.1
+  # Multi-timeframe check: never trade against the trend on these timeframes (a range doesn't block).
+  align_timeframes: [15m, 1h, D]
+  zone_impulse_atr: 2.0     # supply/demand zone = quiet base before a move of 2+ ATRs (15m / 30m / 1h)
+  # TJR's model is the same on every chart, and its setups are rare: score it across all tickers together.
+  pooled_triggers: [smc_retrace, smc_bos, orb_ntz_retest]
+  edge_lookback_days: 60    # sessions of setups that count as evidence. 5 and 20 were shown to select noise
+                            # (a short-record gate lowered results in both test periods: docs/research-log.md)
+  lessons_path: data/lessons-futures.json   # the futures city's own lessons book
+  morning_study: "07:00"    # ET. The morning study clears or stands down each tower; nothing trades before it.
+
+
+smc:                        # TJR's boot camp model (docs/tjr-bootcamp/README.md)
+  setup_timeframes: [5m, 15m]   # sweep + break read here; entered on a break one timeframe lower (5m->1m, 15m->5m)
+  target_timeframes: [5m, 15m, 1h]  # resting highs/lows used as targets (plus the prior day's high/low)
+  stop_buffer_atr: 0.1      # stop this far beyond the swept high/low (spread room, Day 38)
+  min_rr: 1.0               # first target at least 1:1 (Day 37)
+  max_setup_minutes: 120
+  horizon_minutes: 120      # how long a past setup gets to reach its stop or target when scoring it
+  require_daily_bias: true  # a daily bias must be known from daily candles before any entry
+  # Evidence (docs/research-log.md): over Jun-Aug 2026 the setups that ran AGAINST the daily bias with a
+  # fixed 1R target were the only variant that then held up on unseen Sep-Oct data (55% wins, +0.15R,
+  # PF 1.41, 44 trades). Small sample, ~800 variants tried: treat it as a lead, not proof. TJR teaches "with".
+  bias_mode: against
+  target_mode: fixed
+  target_r: 1.0
+  require_sweep: true       # a break without a prior sweep of resting liquidity is not the model (Days 12, 30)
+
+
+news:                       # TJR Day 19: never trade CPI, PPI, FOMC or NFP days; wait after other big releases
+  enabled: true
+  # FOMC decision days: the Fed's 2026 schedule (Jan 28, Mar 18, Apr 29, Jun 17, Jul 29, Sep 16, Oct 28, Dec 9).
+  # CPI / PPI / jobs (NFP) dates re-checked 2026-10-21 against the BLS's own published schedule (the next dates are
+  # printed in each BLS release, e.g. the September PPI report and Employment Situation), matched by other calendars.
+  # bls.gov itself can't be reached from the cloud session; re-check https://www.bls.gov/schedule/ when 2027 is out.
+  # A missing date means NO blackout that day. 2027 dates aren't published yet.
+  blackout_days:
+    "2026-01-28": FOMC
+    "2026-03-18": FOMC
+    "2026-04-29": FOMC
+    "2026-06-17": FOMC
+    "2026-07-29": FOMC
+    "2026-09-16": FOMC
+    "2026-10-02": NFP (September jobs)
+    "2026-10-14": CPI (September)
+    "2026-10-15": PPI (September)
+    "2026-10-28": FOMC
+    "2026-11-06": NFP (October jobs)
+    "2026-11-10": CPI (October)
+    "2026-11-13": PPI (October)
+    "2026-12-04": NFP (November jobs)
+    "2026-12-09": FOMC
+    "2026-12-10": CPI (November)
+    "2026-12-15": PPI (November)
+  events: {}                # "2026-10-16 10:00": Retail sales  -> no entries until 30 min after
+  wait_minutes: 30
+  derisk_days:              # TJR Day 39: half size (half days are automatic)
+    "2026-11-25": day before Thanksgiving
+
+
+sim:
+  starting_cash: 30000
+  futures_spread_ticks: 1   # modeled spread: MES/MNQ/MGC usually trade one tick wide in the New York session
+
+dashboard:
+  enabled: true
+  host: 127.0.0.1
+  port: 8767                # the options city is on 8765
+
+workers:
+  - name: MES
+    symbol: MES            # Micro S&P 500, front month ($5 a point); long on bullish setups, short on bearish ones
+    triggers: [smc_retrace, orb_ntz_retest]
+    sizing: {mode: risk, risk: 300, max_contracts: 10}   # contracts so the chart stop costs about $300
+    exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
+    start_time: "09:35"
+    end_time: "11:00"       # TJR Day 29: the first 1.5 hours of the New York session
+    pm_start: "13:00"       # afternoon session, only if the account took no morning trade (own track record)
+    pm_end: "15:30"
+    daily_goal: 600
+    max_daily_loss: 300
+
+  - name: MNQ
+    symbol: MNQ            # Micro Nasdaq-100, front month ($2 a point); long on bullish setups, short on bearish ones
+    triggers: [smc_retrace, orb_ntz_retest]
+    sizing: {mode: risk, risk: 300, max_contracts: 10}   # contracts so the chart stop costs about $300
+    exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
+    start_time: "09:35"
+    end_time: "11:00"       # TJR Day 29: the first 1.5 hours of the New York session
+    pm_start: "13:00"       # afternoon session, only if the account took no morning trade (own track record)
+    pm_end: "15:30"
+    daily_goal: 600
+    max_daily_loss: 300
+
+  - name: MGC
+    symbol: MGC            # Micro Gold, front month ($10 a point); long on bullish setups, short on bearish ones
+    triggers: [smc_retrace, orb_ntz_retest]
+    sizing: {mode: risk, risk: 300, max_contracts: 10}   # contracts so the chart stop costs about $300
+    exits: {measure: structure, max_hold_minutes: 390, exit_on_reversal: false}  # stop, 1R target or the close
+    start_time: "09:35"
+    end_time: "11:00"       # TJR Day 29: the first 1.5 hours of the New York session
+    pm_start: "13:00"       # afternoon session, only if the account took no morning trade (own track record)
+    pm_end: "15:30"
+    daily_goal: 600
+    max_daily_loss: 300

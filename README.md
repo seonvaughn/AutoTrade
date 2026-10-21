@@ -3,7 +3,8 @@
 A rebuild of the "Scalp City" system from the @NICKAFISCHER video. Python bots day-trade options on
 QQQ, SPY and IWM (plus NVDA, TSLA, AAPL, META, AMZN, AMD and MSFT) using the three triggers he
 describes. The city trades options only (the old crypto edition is archived for its own city later: see
-`docs/crypto-city-archive.md`). A 3D
+`docs/crypto-city-archive.md`). A second city trades micro futures (MES, MNQ, MGC) on Interactive Brokers
+paper: see `docs/futures-city.md`. A 3D
 city dashboard shows each worker as a tower you can walk into, with the bots that run it standing
 around the city.
 

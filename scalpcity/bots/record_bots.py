@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from ..core.events import (ContractSelected, DailySummary, EntryVetoed, KeyLevels, MorningPlan, TradeReview, ResearchCleared, Fill, KillSwitch, Leaderboard, OptionQuote, OrderRejected, OrderSide,
+from ..core.events import (ContractSelected, DailySummary, EntryVetoed, KeyLevels, MorningPlan, TradeReview, ResearchCleared, Fill, KillSwitch, Leaderboard, OptionQuote, OrderRejected,
                            PnLUpdate, PositionOpened, Purpose, SessionEvent, SessionKind, SetupUpdate, SignalSkipped,
                            ContractRejected, Thought, TradeClosed, WorkerStats, WorkerStatus)
 from ..core.costs import QTY_EPS
@@ -45,8 +45,8 @@ class LedgerBot(Bot):
 
     def holdings(self) -> dict[str, float]:
         out: dict[str, float] = {}
-        for p in self.pos.values():
-            out[p["contract"].occ] = out.get(p["contract"].occ, 0) + p["qty"]
+        for p in self.pos.values():           # signed: a short future counts negative, like the broker reports it
+            out[p["contract"].occ] = out.get(p["contract"].occ, 0) + p["qty"] * p["contract"].way
         return out
 
     def vault(self) -> float:
@@ -60,7 +60,7 @@ class LedgerBot(Bot):
         self.ctx.storage.add_fill(f.ts, it.worker, it.contract.occ, it.side.value, it.purpose.value, f.qty, f.price,
                                   f.fees, f.order_id)
         p = self.pos.get(it.worker)
-        if it.side is OrderSide.BUY:
+        if it.purpose is Purpose.ENTRY:
             if p is None:
                 p = self.pos[it.worker] = {"contract": it.contract, "qty": 0, "avg": 0.0, "fees": 0.0,
                                            "opened": f.ts, "orig": 0, "pnl": 0.0, "exit_notional": 0.0,
@@ -72,11 +72,11 @@ class LedgerBot(Bot):
             self.emit(PositionOpened(f.ts, it.worker, it.contract, p["qty"], p["avg"], it.signal))
             return
         if p is None:
-            self.log.error("sell fill for %s with no position", it.worker)
+            self.log.error("exit fill for %s with no position", it.worker)
             return
         entry_fees = p["fees"] * f.qty / p["qty"]
         p["fees"] -= entry_fees
-        part = (f.price - p["avg"]) * f.qty * it.contract.multiplier - f.fees - entry_fees
+        part = it.contract.way * (f.price - p["avg"]) * f.qty * it.contract.multiplier - f.fees - entry_fees
         p["pnl"] += part
         p["exit_notional"] += f.price * f.qty
         p["qty"] -= f.qty
@@ -94,7 +94,7 @@ class LedgerBot(Bot):
     def on_quote(self, q: OptionQuote) -> None:
         for worker, p in self.pos.items():
             if p["contract"] == q.contract:
-                u = (q.mid - p["avg"]) * p["qty"] * q.contract.multiplier
+                u = q.contract.way * (q.mid - p["avg"]) * p["qty"] * q.contract.multiplier
                 if abs(u - self.unrealized.get(worker, 0.0)) >= 0.5:
                     self.unrealized[worker] = u
                     self._pnl(worker, q.ts)

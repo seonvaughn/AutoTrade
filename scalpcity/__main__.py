@@ -53,12 +53,12 @@ def main(argv: list[str] | None = None) -> int:
     b = sub.add_parser("backtest")
     b.add_argument("--start", required=True)
     b.add_argument("--end", required=True)
-    b.add_argument("--source", choices=["synthetic", "csv", "polygon", "alpaca"])
+    b.add_argument("--source", choices=["synthetic", "csv", "polygon", "alpaca", "proxy"])
     b.add_argument("--out", default="reports")
     r = sub.add_parser("replay")
     r.add_argument("--day", required=True)
     r.add_argument("--pace", type=float, default=1.0, help="seconds per market minute")
-    r.add_argument("--source", choices=["synthetic", "csv", "polygon", "alpaca"])
+    r.add_argument("--source", choices=["synthetic", "csv", "polygon", "alpaca", "proxy"])
     sub.add_parser("paper")
     sub.add_parser("live")
     d = sub.add_parser("download")
@@ -100,6 +100,13 @@ def main(argv: list[str] | None = None) -> int:
             for _ in range(max(1, cfg.research.lookback_days, cfg.research.edge_lookback_days)):  # studied first
                 first = cal.prev_trading_day(first)
             download(cfg.symbols, first, days[-1], cfg.data.csv_dir, cfg.data.source)
+        if cfg.data.source == "proxy":                 # futures city: the ETF stand-ins' bars (data/proxy.py)
+            from .core.futures import spec
+            from .data.bars import download
+            first = days[0]
+            for _ in range(max(1, cfg.research.lookback_days, cfg.research.edge_lookback_days)):
+                first = cal.prev_trading_day(first)
+            download(sorted({spec(cfg, s)["proxy"] for s in cfg.symbols}), first, days[-1], cfg.data.csv_dir, "alpaca")
         if cfg.data.source == "synthetic":
             logging.getLogger("scalpcity").warning("using SYNTHETIC prices — for testing the machinery only, "
                                                    "results say nothing about real profitability")

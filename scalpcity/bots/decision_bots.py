@@ -5,6 +5,7 @@ import itertools
 
 from ..core import calendar as cal
 from ..core.costs import round_qty
+from ..core.futures import front_month
 from ..core.options_math import bs_price
 from ..core.events import (ContractRejected, ContractSelected, HealthStatus, KillSwitch, KillSwitchRequest,
                            OrderApproved, OrderFailed, OrderIntent, OrderRejected, OrderSide, PnLUpdate, PositionOpened,
@@ -27,6 +28,9 @@ class ContractSelectorBot(Bot):
         w = self.cfg.worker(ws.worker)
         sig = ws.signal
         chain_bot = self.bot("options_chain")
+        if self.cfg.market == "futures":
+            await self.pick_future(ws, w, sig, chain_bot)
+            return
         expiry = cal.next_trading_day(sig.ts.date(), w.dte)
         chains: list = []
         want = w.auto_expiries if w.strike == "auto" else 1
@@ -56,6 +60,24 @@ class ContractSelectorBot(Bot):
             self.emit(ContractRejected(sig.ts, ws.worker, sig, f"spread too wide ({q.bid:.2f}/{q.ask:.2f})"))
         else:
             self.emit(ContractSelected(sig.ts, ws.worker, sig, q, self.explain(q, sig)))
+
+    async def pick_future(self, ws: ResearchCleared, w, sig, chain_bot) -> None:
+        """Futures city: the front month, long for a CALL signal and short for a PUT (futures can be sold short)."""
+        contract = front_month(self.cfg, sig.symbol, sig.ts.date(), sig.side)
+        q = await chain_bot.quote(contract)
+        if q is None or q.bid <= 0:
+            self.emit(ContractRejected(sig.ts, ws.worker, sig, f"no quote for {contract.occ}"))
+            return
+        ticks = round((q.ask - q.bid) / contract.tick)
+        if ticks > self.cfg.risk.max_spread_ticks:
+            self.emit(ContractRejected(sig.ts, ws.worker, sig, f"spread too wide ({q.bid:,.2f}/{q.ask:,.2f}, "
+                                                               f"{ticks} ticks)"))
+            return
+        risk_pts = abs(sig.close - sig.stop) if sig.stop is not None else None
+        note = (f"{contract.label} (front month, ${contract.multiplier:g}/point, margin ≈${contract.margin:,.0f})"
+                + (f"; stop {risk_pts:,.2f} pts away = ${risk_pts * contract.multiplier:,.0f} per contract"
+                   if risk_pts else ""))
+        self.emit(ContractSelected(sig.ts, ws.worker, sig, q, note))
 
     @staticmethod
     def explain(q, sig) -> str:
@@ -136,7 +158,8 @@ class PositionSizerBot(Bot):
         w = self.cfg.worker(e.worker)
         s = w.sizing
         c = e.quote.contract
-        unit = e.quote.ask * c.multiplier
+        future = c.kind == "future"
+        unit = c.margin if future else e.quote.ask * c.multiplier
         if s.mode == "fixed":
             qty = s.contracts
         elif s.mode == "budget":
@@ -149,12 +172,29 @@ class PositionSizerBot(Bot):
             qty = s.risk / (unit * w.exits.stop_loss_pct / 100.0)
         news = self.bot("news_calendar")
         factor, why = news.size_factor(e.ts.date()) if news else (1.0, "")
-        qty = round_qty(c, min(qty * factor, s.max_contracts))
+        qty = qty * factor
+        if future:                            # a tight stop can mean many contracts: stay inside the margin limit
+            qty = min(qty, self.cfg.risk.max_premium_exposure / c.margin)
+        qty = round_qty(c, min(qty, s.max_contracts))
         if qty < 1:
-            self.emit(ContractRejected(e.ts, e.worker, e.signal, f"size rounds to 0 at ${e.quote.ask:.2f}"))
+            if future and e.signal.stop is not None:
+                one = abs(e.signal.close - e.signal.stop) * c.multiplier
+                why = f"one {c.underlying} contract would risk ${one:,.0f} at the chart stop (limit ${s.risk:,.0f})"
+            else:
+                why = f"size rounds to 0 at ${e.quote.ask:.2f}"
+            self.emit(ContractRejected(e.ts, e.worker, e.signal, why))
             return
-        self.emit(OrderIntent(e.ts, e.worker, e.quote.contract, OrderSide.BUY, qty, e.quote.ask, Purpose.ENTRY,
-                              e.signal.trigger, e.signal, f"i{next(_intent_ids)}"))
+        long = c.way > 0                      # a short future sells to open, at the bid
+        self.emit(OrderIntent(e.ts, e.worker, c, OrderSide.BUY if long else OrderSide.SELL, qty,
+                              e.quote.ask if long else e.quote.bid, Purpose.ENTRY, e.signal.trigger, e.signal,
+                              f"i{next(_intent_ids)}"))
+
+
+def capital(contract, qty: float, price: float) -> float:
+    """What a position ties up: an option's premium, or a future's margin."""
+    if contract.kind == "future":
+        return contract.margin * qty
+    return qty * price * contract.multiplier
 
 
 class RiskManagerBot(Bot):
@@ -174,7 +214,7 @@ class RiskManagerBot(Bot):
         self.on(WorkerStatus, self.on_status)
         self.on(OrderFailed, self.on_failed)
         self.on(PositionOpened, lambda e: self.exposure.__setitem__(e.worker,
-                                                                    e.qty * e.entry_price * e.contract.multiplier))
+                                                                    capital(e.contract, e.qty, e.entry_price)))
         self.on(TradeClosed, self.on_closed)
         self.on(SessionEvent, self.on_session)
 
@@ -209,7 +249,7 @@ class RiskManagerBot(Bot):
         if reason:
             self.emit(OrderRejected(o.ts, o, reason))
         else:
-            self.exposure[o.worker] = o.qty * o.limit * o.contract.multiplier
+            self.exposure[o.worker] = capital(o.contract, o.qty, o.limit)
             self.delta_usd[o.worker] = delta_usd
             self.entries_today += 1
             self.emit(OrderApproved(o.ts, o))
@@ -241,7 +281,8 @@ class RiskManagerBot(Bot):
     async def _rules(self, o: OrderIntent) -> str | None:
         r = self.cfg.risk
         clock = self.bot("clock")
-        cost = o.qty * o.limit * o.contract.multiplier
+        cost = capital(o.contract, o.qty, o.limit)
+        future = o.contract.kind == "future"
         if self.kill:
             return "kill switch engaged"
         problems = [why for src, why in self.problems.items()
@@ -257,12 +298,14 @@ class RiskManagerBot(Bot):
         if len(self.exposure) >= r.max_open_positions:
             return f"max {r.max_open_positions} open positions"
         if sum(self.exposure.values()) + cost > r.max_premium_exposure:
-            return f"premium exposure would exceed ${r.max_premium_exposure:,.0f}"
+            what = "margin committed" if future else "premium exposure"
+            return f"{what} would exceed ${r.max_premium_exposure:,.0f}"
         acct = await self.ctx.broker.account()
         bp = acct.options_buying_power
         if cost > bp:
             return f"not enough buying power (${bp:,.0f})"
-        if r.pdt_guard and not acct.cash_account and acct.equity < 25000 and acct.daytrade_count >= 3:
+        # the pattern-day-trader rule covers stocks and options in a margin account, not futures
+        if r.pdt_guard and not future and not acct.cash_account and acct.equity < 25000 and acct.daytrade_count >= 3:
             return "pattern-day-trader guard: 3 day trades in 5 days on a sub-$25k margin account"
         return None
 

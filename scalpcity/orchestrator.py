@@ -91,6 +91,9 @@ class Orchestrator:
         self.bots.append(self.feed)
 
     def _make_broker(self):
+        if self.cfg.broker.name == "ibkr":
+            from .brokers.ibkr import IBKRBroker
+            return IBKRBroker(self.cfg)
         if self.cfg.broker.name == "alpaca":
             from .brokers.alpaca import AlpacaBroker
             return AlpacaBroker("live" if self.cfg.mode == "live" else "paper")

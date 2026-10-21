@@ -11,12 +11,14 @@ Live/paper: Alpaca or Polygon option snapshots (data.live_data).
 from __future__ import annotations
 
 import asyncio
+import math
 from datetime import date, datetime, timedelta
 from typing import Optional
 
 from ..core import calendar as cal
 from ..core.events import OptionContract, OptionQuote, PositionOpened, Side, Tick, TradeClosed
 from ..core.options_math import bs_delta, bs_price, round_tick
+from ..core.futures import round_tick as round_to
 from .base import Bot
 
 
@@ -44,6 +46,10 @@ class SimChain:
         spot = self.spot.get(c.underlying)
         if spot is None:
             return None
+        if c.kind == "future":          # the replayed price is the future's own: a tick or so wide, delta 1
+            bid = round_to(math.floor(spot / c.tick + 1e-9) * c.tick, c.tick)
+            ask = round_to(bid + c.tick * max(1, self.cfg.sim.futures_spread_ticks), c.tick)
+            return OptionQuote(ts, c, bid, ask, float(c.way), None, spot)
         minutes = cal.minutes_to_expiry(ts, c.expiry)
         iv = self.cfg.sim.iv.get(c.underlying, 0.2)
         is_call = c.right is Side.CALL

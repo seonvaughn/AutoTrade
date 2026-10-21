@@ -466,7 +466,7 @@ class MorningStudyBot(Bot):
         # Each strategy and session is judged on its own record (the gate re-checks it per signal): one unproven
         # strategy no longer stands the whole ticker down. With nothing proven, nothing trades.
         details["unproven"] = unproven
-        if triggers and not proven:
+        if triggers and not proven and self.cfg.research.require_record:
             reasons += unproven
         if news:
             factor, why = news.size_factor(d)

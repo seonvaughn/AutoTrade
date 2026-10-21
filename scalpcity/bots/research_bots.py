@@ -312,10 +312,12 @@ class ResearchGateBot(Bot):
         ev: dict = {"edge": edge, "levels_studied": len(levels), "trend": trends}
         if not sig.atr:
             return ev, "not enough data yet (ATR still warming up)"
-        if edge["n"] < r.min_samples:
+        if not r.require_record:
+            ev["exploring"] = "paper exploration: the track record is shown but not required"
+        elif edge["n"] < r.min_samples:
             return ev, (f"not proven: only {edge['n']} past {sig.trigger} signals on {sig.symbol}{when} in "
                         f"{edge_days(self.cfg, sig.trigger)} sessions (need {r.min_samples})")
-        if not edge["proven"]:
+        elif not edge["proven"]:
             return ev, (f"no edge{when}: {sig.trigger} on {sig.symbol} won {edge['wins']}/{edge['n']} "
                         f"({edge['win_rate']:.0%}), avg {edge['avg_r']:+.2f}R over {edge_days(self.cfg, sig.trigger)} sessions")
         against = "bearish" if sig.side is Side.CALL else "bullish"

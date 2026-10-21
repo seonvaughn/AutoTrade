@@ -411,3 +411,22 @@ def test_afternoon_session_only_after_a_missed_morning_and_on_its_own_record():
     o.ctx.bots["risk_manager"].entries_today = 1                # the account traded this morning
     emit(o, _signal(Side.PUT, ts=cal.at(D, "13:31")))
     assert any("only for a missed morning" in s.reason for s in skipped)
+
+
+def test_paper_exploration_trades_on_the_rules_without_a_record_and_never_live():
+    import pytest
+    from scalpcity.core.config import validate
+    o = system(research=True)
+    o.cfg.research.require_record = False
+    o.cfg.smc.bias_mode = "against"
+    _with_daily(o, "bearish")
+    plans = collect(o, MorningPlan)
+    emit(o, Heartbeat(cal.at(D, "07:00")))
+    assert plans[0].cleared                                     # no record yet, but nothing else stands it down
+    reason, ok, _ = _gate(o, _signal(Side.CALL, close=100.0, stop=99.0, target=101.0, ts=cal.at(D, "10:40")))
+    assert reason is None and ok and "exploring" in ok[0].evidence
+    reason, _, _ = _gate(o, _signal(Side.PUT, ts=cal.at(D, "10:41")))
+    assert "the plan trades against the daily bias" in reason   # the strategy's own rules still apply
+    o.cfg.mode, o.cfg.live_trading_enabled = "live", True
+    with pytest.raises(ValueError, match="never live"):
+        validate(o.cfg)

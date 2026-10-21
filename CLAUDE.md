@@ -21,6 +21,11 @@ towers trade now: start with its `README.md`).
 - The owner wants "no guessing": every entry must clear the research gate (evidence from past
   sessions). Don't add a path that opens a position without a `ResearchCleared` event, and don't
   promise accuracy or profits: say what the evidence shows and what it can't.
+- **Paper exploration (owner, 2026-10-21):** "I want them to hop in a trade based off their knowledge … it's just paper.
+  Then we can backtest after." `research.require_record: false` (shipped in config.yaml for paper) lets a setup trade
+  without a proven track record; it still goes through the gate (a `ResearchCleared` with `exploring` in the
+  evidence), and every strategy rule, news day, reward:risk, lesson and safety rail still applies. `validate` refuses
+  it in live mode. Set it back to true before anything but paper.
 
 ## Layout
 

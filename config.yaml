@@ -36,6 +36,8 @@ risk:                       # account-wide limits (apply to all workers together
 
 research:                   # no trade on a hunch: evidence from past sessions before every entry
   enabled: true
+  require_record: false     # PAPER exploration (owner, 2026-10-21): trade on the strategy rules without a proven
+                            # record, to see what the bots do live; every rule and safety rail still applies. Never live.
   lookback_days: 5          # sessions studied before trading (and rolling forward each day)
   # A past signal "won" if price moved target_atr ATRs its way before stop_atr ATRs against it,
   # within horizon_minutes (ATR = 1-minute ATR at the signal).

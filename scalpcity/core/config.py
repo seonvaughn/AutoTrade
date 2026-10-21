@@ -114,6 +114,10 @@ class ResearchConfig:
     # Five sessions of pooled setups is too few to tell an edge from noise (docs/research-log.md).
     edge_lookback_days: int = 0
     morning_study: str = "07:00"      # the daily study before the open; no entries until it has cleared the tower
+    # Paper exploration (owner, 2026-10-21: "hop in a trade based off their knowledge ... it's just paper"): false
+    # lets a setup trade without a proven track record. Every strategy rule, news day, reward:risk, lesson and
+    # safety rail still applies, and the record is still shown with each decision. Refused in live mode.
+    require_record: bool = True
     # Lessons book (bots/learning_bots.py): a feature becomes an avoid/favor rule only with this many in-plan
     # cases and |t| at least this big. Saved here between runs ("" = keep in memory only).
     lessons_path: str = "data/lessons.json"
@@ -318,6 +322,8 @@ def validate(cfg: Config) -> None:
             raise ValueError(f"{w.name}: set both pm_start and pm_end, or neither")
         if w.pm_start and not (w.end_time <= w.pm_start < w.pm_end):
             raise ValueError(f"{w.name}: the afternoon session must start after end_time and end after it starts")
+    if cfg.mode == "live" and not cfg.research.require_record:
+        raise ValueError("research.require_record: false is for paper exploration only, never live")
     if cfg.mode == "live":
         if not cfg.live_trading_enabled:
             raise ValueError("mode=live requires live_trading_enabled: true in config")

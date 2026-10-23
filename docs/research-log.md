@@ -153,3 +153,9 @@ untraded, and its setups keep being scored.
   19 MNQ/MGC setups were skipped because one contract would have risked more than $300.
 - Not profitable. The MES/MNQ numbers are small samples (n 25 and 9) and near break-even. MGC lost, but GLD is the
   weakest stand-in for gold futures, so that result is the least reliable. No tower was dropped on this evidence.
+
+## 2026-10-23: shadow test for "with the daily trend"
+- The owner asked whether to also trade TJR setups WITH the daily bias for a few days. Decision: keep the shipped
+  rule (against), and score the with-trend setups without trading them (`ShadowBot`, `SetupScored.shadow`). Each
+  tower posts a 👻 line at the close: today's shadow setups and the pooled record over the evidence window. Switch
+  only if weeks of shadow results beat the traded rule. (A few days, at 2 trades a day, can't separate the two.)

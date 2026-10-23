@@ -19,8 +19,8 @@ import math
 from pathlib import Path
 from typing import Optional
 
-from ..core.events import (PositionOpened, SessionEvent, SessionKind, SetupScored, Side, Tick, TradeClosed,
-                           TradeReview)
+from ..core.events import (PositionOpened, SessionEvent, SessionKind, SetupScored, Side, Thought, Tick,
+                           TradeClosed, TradeReview)
 from .base import Bot
 from .research_bots import features_of
 
@@ -185,3 +185,48 @@ class LessonsBot(Bot):
                         f"{les['avg_r']:+.2f}R on average over {les['n']} cases (t {les['t']:+.1f})")
         return None
 
+
+
+class ShadowBot(Bot):
+    name = "shadow"
+    skill = "Shadow test: score the TJR setups skipped only for going with the daily trend, without trading them"
+
+    def setup(self) -> None:
+        self.days: dict[str, dict] = {}         # symbol -> day -> [n, wins, sum R]
+        self.on(SetupScored, self.on_scored)
+        self.on(SessionEvent, self.on_session)
+
+    def on_scored(self, e: SetupScored) -> None:
+        if e.shadow:
+            row = self.days.setdefault(e.symbol, {}).setdefault(e.ts.date(), [0, 0, 0.0])
+            row[0] += 1
+            row[1] += e.r > 0
+            row[2] += e.r
+
+    def record(self, symbol: Optional[str], since, until) -> list:
+        n = w = 0
+        r = 0.0
+        for sym, days in self.days.items():
+            if symbol in (None, sym):
+                for d, (dn, dw, dr) in days.items():
+                    if since <= d <= until:
+                        n, w, r = n + dn, w + dw, r + dr
+        return [n, w, r]
+
+    def on_session(self, e: SessionEvent) -> None:
+        if e.kind is not SessionKind.CLOSED:
+            return
+        from ..core import calendar as cal
+        since = e.day
+        for _ in range(max(1, self.cfg.research.edge_lookback_days) - 1):
+            since = cal.prev_trading_day(since)
+        tn, tw, tr = self.record(None, since, e.day)
+        for w in self.cfg.workers:
+            n, wins, r = self.record(w.symbol, e.day, e.day)
+            if not w.enabled or not n:
+                continue
+            text = (f"👻 shadow test (TJR setups with the daily trend, not traded): {n} today, {wins} won, "
+                    f"{r:+.1f}R · all towers, last {self.cfg.research.edge_lookback_days} sessions: {tn} setups, "
+                    f"{(tw / tn if tn else 0):.0%} won, avg {(tr / tn if tn else 0):+.2f}R")
+            self.ctx.storage.add_thought(e.ts, w.name, text, "info")
+            self.emit(Thought(e.ts, w.name, text, "info"))

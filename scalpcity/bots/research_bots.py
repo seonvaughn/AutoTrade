@@ -169,6 +169,7 @@ class EdgeTrackerBot(Bot):
                  "until": s.ts + timedelta(minutes=r.horizon_minutes)}
         p.update(sym=s.symbol, trigger=s.trigger, side=s.side.value, day=s.ts.date(), entry=s.close, way=way,
                  last=s.close, plan=self.in_plan(s), ts=s.ts, features=features_of(self, s), session=self.session(s))
+        p["shadow"] = not p["plan"] and s.trigger in SMC_TRIGGERS and self.in_plan(s, any_bias=True)
         self.pending.append(p)
 
     def on_candle(self, e: CandleClosed) -> None:
@@ -204,7 +205,7 @@ class EdgeTrackerBot(Bot):
                     return got
         return None
 
-    def in_plan(self, s: Signal) -> bool:
+    def in_plan(self, s: Signal, any_bias: bool = False) -> bool:
         """Would the trading plan have taken this chart-planned setup? With the daily bias, inside a worker's
         trading window, not on a news blackout (TJR Days 19, 29, 34). Those are the setups whose record counts."""
         if s.stop is None:
@@ -221,13 +222,13 @@ class EdgeTrackerBot(Bot):
         bias = db.bias(s.symbol, d)["D"] if db else "unknown"
         if self.cfg.smc.require_daily_bias and bias == "unknown":
             return False
-        want = wanted_bias(self.cfg, s.side)
+        want = None if any_bias else wanted_bias(self.cfg, s.side)
         return want is None or bias == want
 
     def _record(self, p: dict, outcome: str, r: float) -> None:
         if "ts" in p:
             self.emit(SetupScored(p["ts"], p["sym"], p["trigger"], Side(p["side"]), outcome, round(r, 3),
-                                  p["features"], p.get("plan", True)))
+                                  p["features"], p.get("plan", True), p.get("shadow", False)))
         rows = self.results.setdefault((p["sym"], p["trigger"]), [])
         rows.append((p["day"], p["side"], outcome, round(r, 3), p.get("plan", True), p.get("session") or "am"))
         oldest = _lookback_start(p["day"], edge_days(self.cfg, p["trigger"]) + 1)

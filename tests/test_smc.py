@@ -430,3 +430,22 @@ def test_paper_exploration_trades_on_the_rules_without_a_record_and_never_live()
     o.cfg.mode, o.cfg.live_trading_enabled = "live", True
     with pytest.raises(ValueError, match="never live"):
         validate(o.cfg)
+
+
+# ---------------------------------------------------------------- shadow test (owner, 2026-10-23)
+def test_shadow_test_scores_with_the_trend_setups_without_trading_them():
+    from scalpcity.core.events import SetupScored, SessionEvent, SessionKind, Thought
+    o = system(research=True)
+    o.cfg.smc.bias_mode = "against"
+    _with_daily(o, "bearish")
+    et = o.ctx.bots["edge_tracker"]
+    emit(o, _signal(Side.PUT, ts=cal.at(D, "10:30")))          # bearish setup, bearish day: WITH the trend
+    emit(o, _signal(Side.CALL, close=100.0, stop=99.0, target=101.0, ts=cal.at(D, "10:31")))   # against: traded
+    with_trend, against = et.pending[-2], et.pending[-1]
+    assert with_trend["shadow"] and not with_trend["plan"]
+    assert against["plan"] and not against["shadow"]
+    thoughts = collect(o, Thought)
+    emit(o, SetupScored(cal.at(D, "11:00"), "QQQ", "smc_retrace", Side.PUT, "win", 1.0, {}, False, True),
+         SessionEvent(cal.at(D, "16:00"), SessionKind.CLOSED, D))
+    line = [t.text for t in thoughts if "shadow test" in t.text]
+    assert line and "1 today, 1 won, +1.0R" in line[0]

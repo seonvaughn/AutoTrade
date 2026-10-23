@@ -125,6 +125,7 @@ class SetupScored(Event):
     r: float
     features: dict
     plan: bool          # the trading plan would have taken it
+    shadow: bool = False  # skipped only for trading with the daily bias (the owner's shadow test, 2026-10-23)
 
 
 @dataclass

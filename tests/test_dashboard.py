@@ -60,7 +60,7 @@ def test_state_has_crew_activity_and_interior_data():
     asyncio.run(o.replay(DAYS[:1]))
     s = d.state()
     crew = {c["name"]: c for c in s["crew"]}
-    assert len(crew) == 41 and crew["candles"]["handled"] > 0 and crew["price_feed"]["handled"] > 0
+    assert len(crew) == 42 and crew["candles"]["handled"] > 0 and crew["price_feed"]["handled"] > 0
     w = s["workers"][0]
     assert {"vwap", "sig_vwap_cross", "execution"} <= set(w["crew"])
     assert w["settings"]["exits"]["stop_loss_pct"] > 0 and w["settings"]["window"] == "09:35-15:30"
